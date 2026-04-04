@@ -82,32 +82,32 @@ def _ns_to_str(ns: int | None) -> str:
     return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def print_rows_csv(rows):
-    writer = csv.writer(sys.stdout)
-    writer.writerow(CSV_HEADER)
-    for _, path, st_size, birthtime_ns, atime_ns, mtime_ns, file_attrs in rows:
-        writer.writerow([
-            path,
-            st_size if st_size is not None else "",
-            _ns_to_str(birthtime_ns),
-            _ns_to_str(atime_ns),
-            _ns_to_str(mtime_ns),
-            file_attrs if file_attrs is not None else "",
-        ])
+def _print_row(writer, row):
+    _, path, st_size, birthtime_ns, atime_ns, mtime_ns, file_attrs = row
+    writer.writerow([
+        path,
+        st_size if st_size is not None else "",
+        _ns_to_str(birthtime_ns),
+        _ns_to_str(atime_ns),
+        _ns_to_str(mtime_ns),
+        file_attrs if file_attrs is not None else "",
+    ])
 
 
 def search_pattern(pattern: str):
     if not DB_PATH.exists():
         raise SystemExit("エラー: データベースが見つかりません。先に locate -u を実行してください。")
+    writer = csv.writer(sys.stdout)
+    found = False
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA case_sensitive_like = OFF")
-        rows = conn.execute(
-            "SELECT * FROM files WHERE path LIKE ?", (f"%{pattern}%",)
-        ).fetchall()
-    if not rows:
+        for row in conn.execute("SELECT * FROM files WHERE path LIKE ?", (f"%{pattern}%",)):
+            if not found:
+                writer.writerow(CSV_HEADER)
+                found = True
+            _print_row(writer, row)
+    if not found:
         print("マッチするファイルが見つかりませんでした。")
-        return
-    print_rows_csv(rows)
 
 
 def search_regex(pattern: str):
@@ -118,15 +118,17 @@ def search_regex(pattern: str):
     except re.error as e:
         raise SystemExit(f"エラー: 正規表現が不正です: {e}")
 
+    writer = csv.writer(sys.stdout)
+    found = False
     with sqlite3.connect(DB_PATH) as conn:
         conn.create_function("REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "")))
-        rows = conn.execute(
-            "SELECT * FROM files WHERE path REGEXP ?", (pattern,)
-        ).fetchall()
-    if not rows:
+        for row in conn.execute("SELECT * FROM files WHERE path REGEXP ?", (pattern,)):
+            if not found:
+                writer.writerow(CSV_HEADER)
+                found = True
+            _print_row(writer, row)
+    if not found:
         print("マッチするファイルが見つかりませんでした。")
-        return
-    print_rows_csv(rows)
 
 
 def main():
