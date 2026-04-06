@@ -1,10 +1,8 @@
 import argparse
-import csv
 import json
 import os
 import re
 import sqlite3
-import sys
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -15,13 +13,21 @@ CONFIG_PATH = Path("locate-py.json")
 DB_PATH = Path("locate-py.db")
 BATCH_SIZE = 100_000
 
+SORT_COLUMNS = {
+    "path": "path",
+    "size": "st_size",
+    "mtime": "st_mtime_ns",
+    "ctime": "st_birthtime_ns",
+    "atime": "st_atime_ns",
+}
+
 CSV_HEADER = [
     "path",
-    "st_size",
-    "st_birthtime_ns",
-    "st_atime_ns",
-    "st_mtime_ns",
-    "st_file_attributes",
+    "size",
+    "ctime",
+    "atime",
+    "mtime",
+    "attributes",
 ]
 
 
@@ -136,68 +142,189 @@ def update_db(config: Config) -> None:
     print(f"{total:,} 件のファイルをインデックスしました。")
 
 
+def _parse_size(s: str) -> int:
+    s = s.strip()
+    units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+    if s and s[-1].upper() in units:
+        return int(s[:-1]) * units[s[-1].upper()]
+    return int(s)
+
+
+_DATE_FORMATS = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
+
+
+def _parse_date_ns(s: str) -> int:
+    for fmt in _DATE_FORMATS:
+        try:
+            return int(datetime.strptime(s.strip(), fmt).timestamp() * 1e9)
+        except ValueError:
+            continue
+    raise SystemExit(
+        f"エラー: 日付フォーマットが不正です: {s!r}\n"
+        "  YYYY-MM-DD / YYYY-MM-DD HH:MM / YYYY-MM-DD HH:MM:SS のいずれかで指定してください。"
+    )
+
+
+def _apply_filters_and_sort(
+    where: list[str], params: list, args: argparse.Namespace
+) -> str:
+    if args.min_size is not None:
+        try:
+            where.append("st_size >= ?")
+            params.append(_parse_size(args.min_size))
+        except ValueError:
+            raise SystemExit(f"エラー: --min-size の値が不正です: {args.min_size!r}")
+    if args.max_size is not None:
+        try:
+            where.append("st_size <= ?")
+            params.append(_parse_size(args.max_size))
+        except ValueError:
+            raise SystemExit(f"エラー: --max-size の値が不正です: {args.max_size!r}")
+
+    for col, after_attr, before_attr in [
+        ("st_mtime_ns", "mtime_after", "mtime_before"),
+        ("st_birthtime_ns", "ctime_after", "ctime_before"),
+        ("st_atime_ns", "atime_after", "atime_before"),
+    ]:
+        after_val = getattr(args, after_attr)
+        before_val = getattr(args, before_attr)
+        if after_val is not None:
+            where.append(f"{col} >= ?")
+            params.append(_parse_date_ns(after_val))
+        if before_val is not None:
+            where.append(f"{col} <= ?")
+            params.append(_parse_date_ns(before_val))
+
+    if args.sort is None and args.sort_order is None:
+        return ""
+    sort_key = args.sort or "path"
+    if args.sort_order:
+        order = args.sort_order.upper()
+    elif sort_key == "path":
+        order = "ASC"
+    else:
+        order = "DESC"
+    return f" ORDER BY {SORT_COLUMNS[sort_key]} {order}"
+
+
+def _format_size(size: int) -> str:
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} PB"
+
+
 def _ns_to_str(ns: int | None) -> str:
     if ns is None:
         return ""
     return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _print_row(writer: csv.writer, row: DbFileRow) -> None:
-    writer.writerow(
-        [
-            row.path,
-            row.st_size if row.st_size is not None else "",
-            _ns_to_str(row.st_birthtime_ns),
-            _ns_to_str(row.st_atime_ns),
-            _ns_to_str(row.st_mtime_ns),
-            row.st_file_attributes if row.st_file_attributes is not None else "",
-        ]
+def _print_row(row: DbFileRow, delimiter: str, quote_path: bool = False) -> None:
+    path = f'"{row.path}"' if quote_path else row.path
+    fields = [
+        path,
+        str(row.st_size) if row.st_size is not None else "",
+        _ns_to_str(row.st_birthtime_ns),
+        _ns_to_str(row.st_atime_ns),
+        _ns_to_str(row.st_mtime_ns),
+        str(row.st_file_attributes) if row.st_file_attributes is not None else "",
+    ]
+    print(delimiter.join(fields))
+
+
+def _check_db() -> None:
+    if not DB_PATH.exists():
+        raise SystemExit(
+            "エラー: データベースが見つかりません。先に locate -u を実行してください。"
+        )
+
+
+def _run_search(
+    conn: sqlite3.Connection, sql: str, params: list, args: argparse.Namespace
+) -> None:
+    where = [sql]
+    order_clause = _apply_filters_and_sort(where, params, args)
+    limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
+    full_sql = (
+        f"SELECT * FROM files WHERE {' AND '.join(where)}{order_clause}{limit_clause}"
     )
 
+    delimiter = "\t" if args.format == "tsv" else ","
+    quote_path = args.format == "csv"
 
-def search_pattern(pattern: str) -> None:
-    if not DB_PATH.exists():
-        raise SystemExit(
-            "エラー: データベースが見つかりません。先に locate -u を実行してください。"
-        )
-    writer = csv.writer(sys.stdout)
-    found = False
+    count = 0
+    total_size = 0
+    header_written = False
+
+    for row in conn.execute(full_sql, params):
+        db_row = DbFileRow(*row)
+        if not header_written:
+            if not args.no_header and args.format != "path":
+                print(delimiter.join(CSV_HEADER))
+            header_written = True
+        if args.format == "path":
+            print(db_row.path)
+        else:
+            _print_row(db_row, delimiter, quote_path=quote_path)
+        count += 1
+        if db_row.st_size is not None:
+            total_size += db_row.st_size
+
+    if count == 0:
+        if not args.no_summary:
+            print("マッチするファイルが見つかりませんでした。")
+    elif not args.no_summary:
+        print(f"検索完了 {count:,} 件 / {_format_size(total_size)}")
+
+
+def search_pattern(pattern: str, args: argparse.Namespace) -> None:
+    _check_db()
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("PRAGMA case_sensitive_like = OFF")
-        for row in conn.execute(
-            "SELECT * FROM files WHERE path LIKE ?", (f"%{pattern}%",)
-        ):
-            if not found:
-                writer.writerow(CSV_HEADER)
-                found = True
-            _print_row(writer, DbFileRow(*row))
-    if not found:
-        print("マッチするファイルが見つかりませんでした。")
-
-
-def search_regex(pattern: str) -> None:
-    if not DB_PATH.exists():
-        raise SystemExit(
-            "エラー: データベースが見つかりません。先に locate -u を実行してください。"
+        conn.execute(
+            f"PRAGMA case_sensitive_like = {'OFF' if args.ignore_case else 'ON'}"
         )
+        _run_search(conn, "path LIKE ?", [f"%{pattern}%"], args)
+
+
+def search_regex(pattern: str, args: argparse.Namespace) -> None:
+    _check_db()
+    flags = re.IGNORECASE if args.ignore_case else 0
     try:
-        re.compile(pattern)
+        re.compile(pattern, flags)
     except re.error as e:
         raise SystemExit(f"エラー: 正規表現が不正です: {e}")
-
-    writer = csv.writer(sys.stdout)
-    found = False
     with sqlite3.connect(DB_PATH) as conn:
         conn.create_function(
-            "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or ""))
+            "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
         )
-        for row in conn.execute("SELECT * FROM files WHERE path REGEXP ?", (pattern,)):
-            if not found:
-                writer.writerow(CSV_HEADER)
-                found = True
-            _print_row(writer, DbFileRow(*row))
-    if not found:
-        print("マッチするファイルが見つかりませんでした。")
+        _run_search(conn, "path REGEXP ?", [pattern], args)
+
+
+def search_all(args: argparse.Namespace) -> None:
+    _check_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        _run_search(conn, "1=1", [], args)
+
+
+_SEARCH_OPTION_ATTRS = (
+    "sort",
+    "limit",
+    "min_size",
+    "max_size",
+    "mtime_after",
+    "mtime_before",
+    "ctime_after",
+    "ctime_before",
+    "atime_after",
+    "atime_before",
+    "ignore_case",
+)
+
+
+def _has_search_options(args: argparse.Namespace) -> bool:
+    return any(getattr(args, attr) for attr in _SEARCH_OPTION_ATTRS)
 
 
 def main() -> None:
@@ -207,15 +334,92 @@ def main() -> None:
     )
     parser.add_argument("-r", "--regex", metavar="PATTERN", help="正規表現で検索する")
     parser.add_argument("pattern", nargs="?", help="パターンで検索する（部分一致）")
+
+    parser.add_argument(
+        "--sort",
+        choices=list(SORT_COLUMNS),
+        metavar="KEY",
+        help="ソートキー: " + ", ".join(SORT_COLUMNS),
+    )
+    parser.add_argument(
+        "--sort-order",
+        choices=["asc", "desc"],
+        dest="sort_order",
+        metavar="ORDER",
+        help="ソート順: asc / desc（省略時: path→asc、その他→desc）",
+    )
+    parser.add_argument(
+        "--min-size", dest="min_size", metavar="SIZE", help="最小サイズ (例: 1K, 10M)"
+    )
+    parser.add_argument(
+        "--max-size", dest="max_size", metavar="SIZE", help="最大サイズ (例: 100M, 1G)"
+    )
+    parser.add_argument(
+        "--mtime-after", dest="mtime_after", metavar="DATE", help="更新日時の下限"
+    )
+    parser.add_argument(
+        "--mtime-before", dest="mtime_before", metavar="DATE", help="更新日時の上限"
+    )
+    parser.add_argument(
+        "--ctime-after", dest="ctime_after", metavar="DATE", help="作成日時の下限"
+    )
+    parser.add_argument(
+        "--ctime-before", dest="ctime_before", metavar="DATE", help="作成日時の上限"
+    )
+    parser.add_argument(
+        "--atime-after", dest="atime_after", metavar="DATE", help="アクセス日時の下限"
+    )
+    parser.add_argument(
+        "--atime-before", dest="atime_before", metavar="DATE", help="アクセス日時の上限"
+    )
+
+    parser.add_argument("-l", "--limit", type=int, metavar="N", help="最大マッチ数")
+    parser.add_argument(
+        "-i",
+        "--ignore-case",
+        action="store_true",
+        dest="ignore_case",
+        help="大文字小文字を区別しない",
+    )
+    parser.add_argument(
+        "-d", "--database", metavar="PATH", help="データベースファイルのパス"
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["tsv", "csv", "path"],
+        default="tsv",
+        dest="format",
+        help="出力フォーマット: tsv（デフォルト）, csv, path",
+    )
+    parser.add_argument(
+        "--no-header",
+        action="store_true",
+        dest="no_header",
+        help="ヘッダ行を出力しない",
+    )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        dest="no_summary",
+        help="合計ファイル数・サイズを出力しない",
+    )
+
     args = parser.parse_args()
+
+    global DB_PATH
+    if args.database:
+        DB_PATH = Path(args.database)
 
     if args.update:
         config = load_config()
         update_db(config)
     elif args.regex:
-        search_regex(args.regex)
+        search_regex(args.regex, args)
     elif args.pattern:
-        search_pattern(args.pattern)
+        search_pattern(args.pattern, args)
+    elif _has_search_options(args):
+        search_all(args)
     else:
         parser.print_help()
 
