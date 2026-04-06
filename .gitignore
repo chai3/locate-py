@@ -1,4 +1,4 @@
 __pycache__
 .venv
-database.db
-database.json
+locate-py.db
+locate-py.json
