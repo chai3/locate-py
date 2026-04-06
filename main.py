@@ -8,7 +8,7 @@ import sys
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import NamedTuple, TypedDict
 
 
 CONFIG_PATH = Path("locate-py.json")
@@ -25,7 +25,31 @@ CSV_HEADER = [
 ]
 
 
-def load_config() -> dict:
+class Config(TypedDict, total=False):
+    target_paths: list[str]
+    ignore_names: list[str]
+
+
+class FileEntry(NamedTuple):
+    path: str
+    st_size: int | None
+    st_birthtime_ns: int | None
+    st_atime_ns: int | None
+    st_mtime_ns: int | None
+    st_file_attributes: int | None
+
+
+class DbFileRow(NamedTuple):
+    id: int
+    path: str
+    st_size: int | None
+    st_birthtime_ns: int | None
+    st_atime_ns: int | None
+    st_mtime_ns: int | None
+    st_file_attributes: int | None
+
+
+def load_config() -> Config:
     if not CONFIG_PATH.exists():
         raise SystemExit(f"エラー: {CONFIG_PATH} が見つかりません。")
     with CONFIG_PATH.open(encoding="utf-8") as f:
@@ -50,28 +74,26 @@ def scan_dir(path: str, ignore_names: set[str]) -> Iterator[os.DirEntry[str]]:
             pass
 
 
-def _iter_rows(
-    config: dict[str, Any],
-) -> Iterator[tuple[str, int | None, int | None, int | None, int | None, int | None]]:
+def _iter_rows(config: Config) -> Iterator[FileEntry]:
     ignore_names = set(config.get("ignore_names", []))
     for base in config.get("target_paths", []):
         for entry in scan_dir(base, ignore_names):
             st = entry.stat(follow_symlinks=False)
-            yield (
-                os.path.normpath(entry.path),
-                st.st_size,
-                getattr(st, "st_birthtime_ns", None),
-                st.st_atime_ns,
-                st.st_mtime_ns,
-                getattr(st, "st_file_attributes", None),
+            yield FileEntry(
+                path=os.path.normpath(entry.path),
+                st_size=st.st_size,
+                st_birthtime_ns=getattr(st, "st_birthtime_ns", None),
+                st_atime_ns=st.st_atime_ns,
+                st_mtime_ns=st.st_mtime_ns,
+                st_file_attributes=getattr(st, "st_file_attributes", None),
             )
 
 
-def update_db(config: dict[str, Any]) -> None:
+def update_db(config: Config) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA cache_size = -65536")
+        conn.execute("PRAGMA cache_size = -65536")  # 64MByte
         conn.execute("PRAGMA temp_store = MEMORY")
         conn.execute("DROP TABLE IF EXISTS files")
         conn.execute("""
@@ -88,7 +110,7 @@ def update_db(config: dict[str, Any]) -> None:
         conn.commit()
 
         total = 0
-        batch = []
+        batch: list[FileEntry] = []
         insert_sql = (
             "INSERT OR REPLACE INTO files "
             "(path, st_size, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes) "
@@ -120,16 +142,15 @@ def _ns_to_str(ns: int | None) -> str:
     return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _print_row(writer: Any, row: tuple[Any, ...]) -> None:
-    _, path, st_size, birthtime_ns, atime_ns, mtime_ns, file_attrs = row
+def _print_row(writer: csv.writer, row: DbFileRow) -> None:
     writer.writerow(
         [
-            path,
-            st_size if st_size is not None else "",
-            _ns_to_str(birthtime_ns),
-            _ns_to_str(atime_ns),
-            _ns_to_str(mtime_ns),
-            file_attrs if file_attrs is not None else "",
+            row.path,
+            row.st_size if row.st_size is not None else "",
+            _ns_to_str(row.st_birthtime_ns),
+            _ns_to_str(row.st_atime_ns),
+            _ns_to_str(row.st_mtime_ns),
+            row.st_file_attributes if row.st_file_attributes is not None else "",
         ]
     )
 
@@ -149,7 +170,7 @@ def search_pattern(pattern: str) -> None:
             if not found:
                 writer.writerow(CSV_HEADER)
                 found = True
-            _print_row(writer, row)
+            _print_row(writer, DbFileRow(*row))
     if not found:
         print("マッチするファイルが見つかりませんでした。")
 
@@ -174,7 +195,7 @@ def search_regex(pattern: str) -> None:
             if not found:
                 writer.writerow(CSV_HEADER)
                 found = True
-            _print_row(writer, row)
+            _print_row(writer, DbFileRow(*row))
     if not found:
         print("マッチするファイルが見つかりませんでした。")
 
