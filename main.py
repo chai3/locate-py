@@ -3,13 +3,13 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple, TypedDict
 
 
-CONFIG_PATH = Path("locate-py.json")
 DB_PATH = Path("locate-py.db")
 BATCH_SIZE = 100_000
 
@@ -32,7 +32,9 @@ CSV_HEADER = [
 
 
 class Config(TypedDict, total=False):
+    database_path: str
     target_paths: list[str]
+    ignore_paths: list[str]
     ignore_names: list[str]
 
 
@@ -55,14 +57,38 @@ class DbFileRow(NamedTuple):
     st_file_attributes: int | None
 
 
-def load_config() -> Config:
-    if not CONFIG_PATH.exists():
-        raise SystemExit(f"エラー: {CONFIG_PATH} が見つかりません。")
-    with CONFIG_PATH.open(encoding="utf-8") as f:
+def _default_config() -> Config:
+    cwd = str(Path.cwd())
+    if sys.platform == "win32":
+        return {
+            "database_path": "locate-py.db",
+            "target_paths": [cwd],
+            "ignore_paths": [],
+            "ignore_names": [],
+        }
+    else:
+        return {
+            "database_path": "locate-py.db",
+            "target_paths": [cwd],
+            "ignore_paths": ["/dev", "/proc", "/sys"],
+            "ignore_names": [""],
+        }
+
+
+def load_config(config_path: Path) -> Config:
+    if not config_path.exists():
+        config = _default_config()
+        with config_path.open("w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        os_name = "Windows" if sys.platform == "win32" else sys.platform
+        print(f"{config_path} が見つからなかったため、自動作成しました。(OS: {os_name})")
+        print(json.dumps(config, ensure_ascii=False, indent=2))
+        return config
+    with config_path.open(encoding="utf-8") as f:
         return json.load(f)
 
 
-def scan_dir(path: str, ignore_names: set[str]) -> Iterator[os.DirEntry[str]]:
+def scan_dir(path: str, ignore_names: set[str], ignore_paths: set[str]) -> Iterator[os.DirEntry[str]]:
     stack = [path]
     while stack:
         current = stack.pop()
@@ -70,7 +96,8 @@ def scan_dir(path: str, ignore_names: set[str]) -> Iterator[os.DirEntry[str]]:
             with os.scandir(current) as it:
                 for entry in it:
                     if entry.is_dir(follow_symlinks=False):
-                        if entry.name not in ignore_names:
+                        norm = os.path.normpath(entry.path)
+                        if norm not in ignore_paths and entry.name not in ignore_names:
                             stack.append(entry.path)
                     elif entry.is_file(follow_symlinks=False):
                         yield entry
@@ -82,8 +109,9 @@ def scan_dir(path: str, ignore_names: set[str]) -> Iterator[os.DirEntry[str]]:
 
 def _iter_rows(config: Config) -> Iterator[FileEntry]:
     ignore_names = set(config.get("ignore_names", []))
+    ignore_paths = {os.path.normpath(p) for p in config.get("ignore_paths", [])}
     for base in config.get("target_paths", []):
-        for entry in scan_dir(base, ignore_names):
+        for entry in scan_dir(base, ignore_names, ignore_paths):
             st = entry.stat(follow_symlinks=False)
             yield FileEntry(
                 path=os.path.normpath(entry.path),
@@ -96,6 +124,7 @@ def _iter_rows(config: Config) -> Iterator[FileEntry]:
 
 
 def update_db(config: Config) -> None:
+    print("データベースの作成を開始します。")
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
@@ -125,10 +154,10 @@ def update_db(config: Config) -> None:
         for row in _iter_rows(config):
             batch.append(row)
             if len(batch) >= BATCH_SIZE:
+                total += len(batch)
+                print(f"  {total:,} 件目を処理中... ({row.path})")
                 conn.executemany(insert_sql, batch)
                 conn.commit()
-                total += len(batch)
-                print(f"  {total:,} 件処理済み...", end="\r", flush=True)
                 batch.clear()
 
         if batch:
@@ -330,6 +359,12 @@ def _has_search_options(args: argparse.Namespace) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description="シンプルな locate コマンド")
     parser.add_argument(
+        "-c", "--config",
+        metavar="PATH",
+        default="locate-py.json",
+        help="設定ファイルのパス（デフォルト: locate-py.json）",
+    )
+    parser.add_argument(
         "-u", "--update", action="store_true", help="データベースを更新する"
     )
     parser.add_argument("-r", "--regex", metavar="PATTERN", help="正規表現で検索する")
@@ -382,9 +417,6 @@ def main() -> None:
         help="大文字小文字を区別しない",
     )
     parser.add_argument(
-        "-d", "--database", metavar="PATH", help="データベースファイルのパス"
-    )
-    parser.add_argument(
         "-f",
         "--format",
         choices=["tsv", "csv", "path"],
@@ -404,15 +436,25 @@ def main() -> None:
         dest="no_summary",
         help="合計ファイル数・サイズを出力しない",
     )
+    parser.add_argument(
+        "--create-config",
+        action="store_true",
+        dest="create_config",
+        help="設定ファイルを作成して終了する",
+    )
 
     args = parser.parse_args()
 
-    global DB_PATH
-    if args.database:
-        DB_PATH = Path(args.database)
+    config = load_config(Path(args.config))
 
-    if args.update:
-        config = load_config()
+    global DB_PATH
+    db_path_str = config.get("database_path")
+    if db_path_str:
+        DB_PATH = Path(db_path_str)
+
+    if args.create_config:
+        return
+    elif args.update:
         update_db(config)
     elif args.regex:
         search_regex(args.regex, args)
