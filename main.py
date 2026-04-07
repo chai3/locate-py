@@ -12,10 +12,12 @@ from typing import NamedTuple, TypedDict
 
 DB_PATH = Path("locate-py.db")
 BATCH_SIZE = 100_000
+FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
 
 SORT_COLUMNS = {
     "path": "path",
     "size": "st_size",
+    "lsize": "lsize",
     "mtime": "st_mtime_ns",
     "ctime": "st_birthtime_ns",
     "atime": "st_atime_ns",
@@ -24,6 +26,7 @@ SORT_COLUMNS = {
 CSV_HEADER = [
     "path",
     "size",
+    "lsize",
     "ctime",
     "atime",
     "mtime",
@@ -45,6 +48,7 @@ class FileEntry(NamedTuple):
     st_atime_ns: int | None
     st_mtime_ns: int | None
     st_file_attributes: int | None
+    lsize: int
 
 
 class DbFileRow(NamedTuple):
@@ -55,6 +59,13 @@ class DbFileRow(NamedTuple):
     st_atime_ns: int | None
     st_mtime_ns: int | None
     st_file_attributes: int | None
+    lsize: int
+
+
+def _calc_lsize(path: str, st_size: int | None, st_file_attributes: int | None) -> int:
+    if st_file_attributes is not None and (st_file_attributes & FILE_ATTRIBUTE_RECALL_ON_OPEN):
+        return 0
+    return st_size if st_size is not None else 0
 
 
 def _default_config() -> Config:
@@ -113,13 +124,17 @@ def _iter_rows(config: Config) -> Iterator[FileEntry]:
     for base in config.get("target_paths", []):
         for entry in scan_dir(base, ignore_names, ignore_paths):
             st = entry.stat(follow_symlinks=False)
+            path = os.path.normpath(entry.path)
+            st_size = st.st_size
+            st_file_attributes = getattr(st, "st_file_attributes", None)
             yield FileEntry(
-                path=os.path.normpath(entry.path),
-                st_size=st.st_size,
+                path=path,
+                st_size=st_size,
                 st_birthtime_ns=getattr(st, "st_birthtime_ns", None),
                 st_atime_ns=st.st_atime_ns,
                 st_mtime_ns=st.st_mtime_ns,
-                st_file_attributes=getattr(st, "st_file_attributes", None),
+                st_file_attributes=st_file_attributes,
+                lsize=_calc_lsize(path, st_size, st_file_attributes),
             )
 
 
@@ -139,7 +154,8 @@ def update_db(config: Config) -> None:
                 st_birthtime_ns     INTEGER,
                 st_atime_ns         INTEGER,
                 st_mtime_ns         INTEGER,
-                st_file_attributes  INTEGER
+                st_file_attributes  INTEGER,
+                lsize               INTEGER NOT NULL DEFAULT 0
             )
         """)
         conn.commit()
@@ -148,8 +164,8 @@ def update_db(config: Config) -> None:
         batch: list[FileEntry] = []
         insert_sql = (
             "INSERT OR REPLACE INTO files "
-            "(path, st_size, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes) "
-            "VALUES (?, ?, ?, ?, ?, ?)"
+            "(path, st_size, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, lsize) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)"
         )
         for row in _iter_rows(config):
             batch.append(row)
@@ -255,6 +271,7 @@ def _print_row(row: DbFileRow, delimiter: str, quote_path: bool = False) -> None
     fields = [
         path,
         str(row.st_size) if row.st_size is not None else "",
+        str(row.lsize),
         _ns_to_str(row.st_birthtime_ns),
         _ns_to_str(row.st_atime_ns),
         _ns_to_str(row.st_mtime_ns),
