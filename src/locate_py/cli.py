@@ -102,6 +102,33 @@ class DbDirRow(NamedTuple):
     total_lsize: int
 
 
+class LocateArgs(argparse.Namespace):
+    config: str
+    update: bool
+    regex: str | None
+    pattern: str | None
+    sort: str | None
+    sort_order: str | None
+    min_size: str | None
+    max_size: str | None
+    min_total_size: str | None
+    max_total_size: str | None
+    type: str
+    mtime_after: str | None
+    mtime_before: str | None
+    ctime_after: str | None
+    ctime_before: str | None
+    atime_after: str | None
+    atime_before: str | None
+    target_dir: str | None
+    limit: int | None
+    ignore_case: bool
+    format: str
+    no_header: bool
+    no_summary: bool
+    create_config: bool
+
+
 class _DirAccum:
     __slots__ = (
         "files",
@@ -271,7 +298,7 @@ def _add_size_filter(
 
 
 def _build_order_clause(
-    args: argparse.Namespace, sort_columns: dict[str, str], *, is_dir: bool
+    args: LocateArgs, sort_columns: dict[str, str], *, is_dir: bool
 ) -> str:
     if args.sort is None and args.sort_order is None:
         return ""
@@ -295,7 +322,7 @@ def _build_order_clause(
 def _apply_filters_and_sort(
     where: list[str],
     params: list,
-    args: argparse.Namespace,
+    args: LocateArgs,
     sort_columns: dict[str, str] = SORT_COLUMNS,
     *,
     is_dir: bool = False,
@@ -426,7 +453,7 @@ _SEARCH_OPTION_ATTRS = (
 )
 
 
-def _has_search_options(args: argparse.Namespace) -> bool:
+def _has_search_options(args: LocateArgs) -> bool:
     # if type is "dir", treat it as an explicit search
     if getattr(args, "type", "file") == "dir":
         return True
@@ -434,8 +461,9 @@ def _has_search_options(args: argparse.Namespace) -> bool:
 
 
 class LocatePy:
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, args: LocateArgs) -> None:
         self.config = config
+        self.args = args
         db_path_str = config.get("database_path")
         self.db_path: Path = Path(db_path_str) if db_path_str else Path("locate-py.db")
 
@@ -443,17 +471,17 @@ class LocatePy:
         if not self.db_path.exists():
             raise SystemExit("Error: database not found. Run locate -u first.")
 
-    def _get_table(self, args: argparse.Namespace) -> Literal["files", "dirs"]:
-        return "dirs" if getattr(args, "type", "file") == "dir" else "files"
+    def _get_table(self) -> Literal["files", "dirs"]:
+        return "dirs" if self.args.type == "dir" else "files"
 
     def _run_search(
         self,
         conn: sqlite3.Connection,
         sql: str,
         params: list,
-        args: argparse.Namespace,
         table: Literal["files", "dirs"] = "files",
     ) -> None:
+        args = self.args
         is_dir = table == "dirs"
         sort_columns = DIR_SORT_COLUMNS if is_dir else SORT_COLUMNS
         where = [sql]
@@ -637,19 +665,19 @@ class LocatePy:
         print(f"Indexed {total:,} files.")
         print(f"Indexed {dir_count:,} directories.")
 
-    def search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
+    def search_pattern(self, pattern: str) -> None:
         self._check_db()
-        table = self._get_table(args)
+        table = self._get_table()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                f"PRAGMA case_sensitive_like = {'OFF' if args.ignore_case else 'ON'}"
+                f"PRAGMA case_sensitive_like = {'OFF' if self.args.ignore_case else 'ON'}"
             )
-            self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], args, table)
+            self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], table)
 
-    def search_regex(self, pattern: str, args: argparse.Namespace) -> None:
+    def search_regex(self, pattern: str) -> None:
         self._check_db()
-        table = self._get_table(args)
-        flags = re.IGNORECASE if args.ignore_case else 0
+        table = self._get_table()
+        flags = re.IGNORECASE if self.args.ignore_case else 0
         try:
             re.compile(pattern, flags)
         except re.error as e:
@@ -658,13 +686,13 @@ class LocatePy:
             conn.create_function(
                 "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
             )
-            self._run_search(conn, "path REGEXP ?", [pattern], args, table)
+            self._run_search(conn, "path REGEXP ?", [pattern], table)
 
-    def search_all(self, args: argparse.Namespace) -> None:
+    def search_all(self) -> None:
         self._check_db()
-        table = self._get_table(args)
+        table = self._get_table()
         with sqlite3.connect(self.db_path) as conn:
-            self._run_search(conn, "1=1", [], args, table)
+            self._run_search(conn, "1=1", [], table)
 
 
 def main() -> None:
@@ -814,23 +842,23 @@ def main() -> None:
         help="Create config file and exit",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(namespace=LocateArgs())
 
     config = load_config(Path(args.config))
 
     if args.create_config:
         return
 
-    app = LocatePy(config)
+    app = LocatePy(config, args)
 
     if args.update:
         app.update_db()
     elif args.regex:
-        app.search_regex(args.regex, args)
+        app.search_regex(args.regex)
     elif args.pattern:
-        app.search_pattern(args.pattern, args)
+        app.search_pattern(args.pattern)
     elif _has_search_options(args):
-        app.search_all(args)
+        app.search_all()
     else:
         parser.print_help()
 
