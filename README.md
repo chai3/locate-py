@@ -1,17 +1,17 @@
 # locate-py
 
-SQLite ベースのローカルファイル検索ツール。ファイルとディレクトリのインデックスを作成し、高速にパス・サイズ・日時で検索できます。
+A SQLite-based local file search tool. Indexes files and directories for fast searching by path, size, and timestamp.
 
-## セットアップ
+## Setup
 
 ```bash
-# 設定ファイルを生成（初回）
+# Generate config file (first time)
 python main.py --create-config
 
-# locate-py.json を編集して target_paths などを設定
+# Edit locate-py.json to configure target_paths etc.
 ```
 
-### locate-py.json の例
+### locate-py.json example
 
 ```json
 {
@@ -22,128 +22,128 @@ python main.py --create-config
 }
 ```
 
-## データベースの更新
+## Update Database
 
 ```bash
 python main.py -u
 ```
 
-ファイルとディレクトリ両方がインデックスされます。
+Both files and directories are indexed.
 
 ---
 
-## ファイル検索（`--type file`、デフォルト）
+## File Search (`--type file`, default)
 
-### パターン検索（部分一致）
+### Pattern search (partial match)
 
 ```bash
 python main.py report
-python main.py -i report          # 大文字小文字を区別しない
-python main.py -r "\.log$"        # 正規表現
+python main.py -i report          # case-insensitive
+python main.py -r "\.log$"        # regex
 ```
 
-### サイズフィルタ
+### Size filter
 
 ```bash
-python main.py --min-size 100M               # 100MB 以上
-python main.py --min-size 1G --sort size     # 1GB 以上・サイズ降順
+python main.py --min-size 100M               # 100 MB or larger
+python main.py --min-size 1G --sort size     # 1 GB or larger, sorted by size
 ```
 
-### 日時フィルタ
+### Time filter
 
 ```bash
 python main.py --mtime-after 2024-01-01
 python main.py --mtime-after "2024-06-01 00:00" --mtime-before "2024-06-30 23:59"
 ```
 
-### 出力オプション
+### Output options
 
 ```bash
-python main.py report --format path          # パスのみ出力
-python main.py report --format csv           # CSV 出力
-python main.py report -l 20                  # 最大 20 件
-python main.py report --no-header            # ヘッダ行なし
-python main.py report --sort size            # サイズ降順ソート
+python main.py report --format path          # path only
+python main.py report --format csv           # CSV output
+python main.py report -l 20                  # up to 20 results
+python main.py report --no-header            # no header row
+python main.py report --sort size            # sort by size descending
 ```
 
-**ソートキー（`--type file`）:** `path`, `size`, `lsize`, `mtime`, `ctime`, `atime`
+**Sort keys (`--type file`):** `path`, `size`, `lsize`, `mtime`, `ctime`, `atime`
 
 ---
 
-## ディレクトリ検索（`--type dir`）
+## Directory Search (`--type dir`)
 
-### 大きいフォルダを探す（配下全体）
+### Find large folders (recursive total)
 
 ```bash
 python main.py --type dir --min-total-size 1G --sort total_size
 ```
 
-### ファイル数が多いフォルダを探す（配下全体）
+### Find folders with many files (recursive total)
 
 ```bash
 python main.py --type dir --sort total_files
 ```
 
-### 直下ファイル数が多いフォルダ
+### Find folders with many direct files
 
 ```bash
 python main.py --type dir --sort files
 ```
 
-### 直下サイズのフィルタ
+### Filter by direct size
 
 ```bash
 python main.py --type dir --min-size 500M --sort size
 ```
 
-### パターン絞り込み + ディレクトリ検索
+### Pattern filter + directory search
 
 ```bash
 python main.py --type dir Downloads
 python main.py --type dir -r "node_modules$" --sort total_size
 ```
 
-**ソートキー（`--type dir`）:** `path`, `size`（直下）, `lsize`（直下）, `files`（直下）, `total_size`, `total_lsize`, `total_files`, `mtime`, `ctime`, `atime`
+**Sort keys (`--type dir`):** `path`, `size` (direct), `lsize` (direct), `files` (direct), `total_size`, `total_lsize`, `total_files`, `mtime`, `ctime`, `atime`
 
-### 出力カラム（`--type dir`）
+### Output columns (`--type dir`)
 
-| カラム | 内容 |
-|--------|------|
-| path | ディレクトリパス |
-| files | 直下ファイル数 |
-| size | 直下ファイルの合計サイズ（バイト） |
-| lsize | 直下ファイルのローカルサイズ合計 |
-| total_files | 配下全ファイル数 |
-| total_size | 配下全ファイルの合計サイズ（バイト） |
-| total_lsize | 配下全ファイルのローカルサイズ合計 |
-| ctime / atime / mtime | ディレクトリのタイムスタンプ |
-| attributes | Windows ファイル属性 |
+| Column | Description |
+|--------|-------------|
+| path | Directory path |
+| files | Number of direct files |
+| size | Total size of direct files (bytes) |
+| lsize | Local size of direct files |
+| total_files | Total files under directory |
+| total_size | Total size under directory (bytes) |
+| total_lsize | Total local size under directory |
+| ctime / atime / mtime | Directory timestamps |
+| attributes | Windows file attributes |
 
-> `lsize` はオンラインストレージ（OneDrive 等）のファイルを除いたローカルサイズ。
+> `lsize` is the local size excluding cloud-only files (e.g. OneDrive files not downloaded locally).
 
 ---
 
-## 共通オプション一覧
+## Options Reference
 
-| オプション | 説明 |
-|-----------|------|
-| `-u` / `--update` | データベースを更新 |
-| `-c PATH` | 設定ファイルのパス（デフォルト: `locate-py.json`） |
-| `--type file\|dir` | 検索対象（デフォルト: `file`） |
-| `-r PATTERN` | 正規表現検索 |
-| `-i` | 大文字小文字を区別しない |
-| `--sort KEY` | ソートキー |
-| `--sort-order asc\|desc` | ソート順 |
-| `--min-size SIZE` | 最小サイズ（例: `1K`, `10M`, `2G`） |
-| `--max-size SIZE` | 最大サイズ |
-| `--min-total-size SIZE` | 最小配下全サイズ（`--type dir` 専用） |
-| `--max-total-size SIZE` | 最大配下全サイズ（`--type dir` 専用） |
-| `--mtime-after DATE` | 更新日時の下限（`YYYY-MM-DD` 形式） |
-| `--mtime-before DATE` | 更新日時の上限 |
-| `--ctime-after/before` | 作成日時フィルタ |
-| `--atime-after/before` | アクセス日時フィルタ |
-| `-l N` | 最大表示件数 |
-| `-f tsv\|csv\|path` | 出力フォーマット（デフォルト: `tsv`） |
-| `--no-header` | ヘッダ行を非表示 |
-| `--no-summary` | 合計行を非表示 |
-| `--create-config` | 設定ファイルを生成して終了 |
+| Option | Description |
+|--------|-------------|
+| `-u` / `--update` | Update the database |
+| `-c PATH` | Path to config file (default: `locate-py.json`) |
+| `--type file\|dir` | Type to search (default: `file`) |
+| `-r PATTERN` | Regex search |
+| `-i` | Case-insensitive search |
+| `--sort KEY` | Sort key |
+| `--sort-order asc\|desc` | Sort order |
+| `--min-size SIZE` | Minimum size (e.g. `1K`, `10M`, `2G`) |
+| `--max-size SIZE` | Maximum size |
+| `--min-total-size SIZE` | Minimum total size under dir (`--type dir` only) |
+| `--max-total-size SIZE` | Maximum total size under dir (`--type dir` only) |
+| `--mtime-after DATE` | Modified time lower bound (`YYYY-MM-DD` format) |
+| `--mtime-before DATE` | Modified time upper bound |
+| `--ctime-after/before` | Creation time filter |
+| `--atime-after/before` | Access time filter |
+| `-l N` | Maximum number of results |
+| `-f tsv\|csv\|path` | Output format (default: `tsv`) |
+| `--no-header` | Suppress header row |
+| `--no-summary` | Suppress summary line |
+| `--create-config` | Generate config file and exit |

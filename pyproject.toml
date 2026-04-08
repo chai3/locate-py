@@ -18,9 +18,9 @@ exclude-newer = "8 days"
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "D203",   # D211と競合するため
-    "D213",   # D212と競合するため
-    "COM812", # フォーマッタと競合するため
+    "D203",   # conflicts with D211
+    "D213",   # conflicts with D212
+    "COM812", # conflicts with formatter
     "D",
     "T201",
     "TRY003",

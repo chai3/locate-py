@@ -161,7 +161,7 @@ def load_config(config_path: Path) -> Config:
             json.dump(config, f, ensure_ascii=False, indent=2)
         os_name = "Windows" if sys.platform == "win32" else sys.platform
         print(
-            f"{config_path} が見つからなかったため、自動作成しました。(OS: {os_name})"
+            f"{config_path} was not found, so it was created automatically. (OS: {os_name})"
         )
         print(json.dumps(config, ensure_ascii=False, indent=2))
         return config
@@ -175,7 +175,7 @@ def _scan_files_and_collect_dirs(
     ignore_paths: set[str],
     dir_accums: dict[str, "_DirAccum"],
 ) -> Iterator[FileEntry]:
-    """ファイルをyieldしながら、ディレクトリのstatをdir_accumsに蓄積する。"""
+    """Yield files while accumulating directory stats into dir_accums."""
     stack = [path]
     while stack:
         current = stack.pop()
@@ -221,7 +221,7 @@ def _scan_files_and_collect_dirs(
 
 
 def _propagate_totals(dir_accums: dict[str, "_DirAccum"]) -> None:
-    """直下集計からボトムアップで total_* を伝播する。"""
+    """Propagate total_* bottom-up from direct-child aggregates."""
     for acc in dir_accums.values():
         acc.total_files = acc.files
         acc.total_size = acc.size
@@ -250,13 +250,12 @@ _DATE_FORMATS = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
 def _parse_date_ns(s: str) -> int:
     for fmt in _DATE_FORMATS:
         try:
-            return int(datetime.strptime(s.strip(), fmt).timestamp() * 1e9)  # noqa: DTZ007 ユーザー入力はローカルタイムとみなす
+            return int(datetime.strptime(s.strip(), fmt).timestamp() * 1e9)  # noqa: DTZ007 treat user input as local time
         except ValueError:
             continue
     raise SystemExit(
-        f"エラー: 日付フォーマットが不正です: {s!r}\n"
-        "  YYYY-MM-DD / YYYY-MM-DD HH:MM"
-        " / YYYY-MM-DD HH:MM:SS のいずれかで指定してください。"
+        f"Error: invalid date format: {s!r}\n"
+        "  Use one of: YYYY-MM-DD / YYYY-MM-DD HH:MM / YYYY-MM-DD HH:MM:SS"
     )
 
 
@@ -268,7 +267,7 @@ def _add_size_filter(
         params.append(_parse_size(val))
     except ValueError:
         raise SystemExit(
-            f"エラー: {option_name} の値が不正です: {val!r}"
+            f"Error: invalid value for {option_name}: {val!r}"
         ) from None
 
 
@@ -281,9 +280,9 @@ def _build_order_clause(
     if sort_key not in sort_columns:
         valid = ", ".join(sort_columns)
         raise SystemExit(
-            f"エラー: --sort {sort_key!r} は"
-            f" --type {'dir' if is_dir else 'file'} では使用できません。"
-            f" 使用可能: {valid}"
+            f"Error: --sort {sort_key!r} is not available for"
+            f" --type {'dir' if is_dir else 'file'}."
+            f" Valid keys: {valid}"
         )
     if args.sort_order:
         order = args.sort_order.upper()
@@ -350,7 +349,7 @@ def _format_size(size: int) -> str:
 def _ns_to_str(ns: int | None) -> str:
     if ns is None:
         return ""
-    return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 ローカルタイムで表示
+    return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 display in local time
 
 
 def _print_row(row: DbFileRow, delimiter: str, *,quote_path: bool = False) -> None:
@@ -429,7 +428,7 @@ _SEARCH_OPTION_ATTRS = (
 
 
 def _has_search_options(args: argparse.Namespace) -> bool:
-    # type が "dir" の場合は明示的な検索指定とみなす
+    # if type is "dir", treat it as an explicit search
     if getattr(args, "type", "file") == "dir":
         return True
     return any(getattr(args, attr, None) for attr in _SEARCH_OPTION_ATTRS)
@@ -444,8 +443,8 @@ class LocatePy:
     def _check_db(self) -> None:
         if not self.db_path.exists():
             raise SystemExit(
-                "エラー: データベースが見つかりません。"
-                "先に locate -u を実行してください。"
+                "Error: database not found. "
+                "Run locate -u first."
             )
 
     def _get_table(self, args: argparse.Namespace) -> Literal["files", "dirs"]:
@@ -474,7 +473,7 @@ class LocatePy:
         delimiter = "\t" if args.format == "tsv" else ","
         quote_path = args.format == "csv"
         header = CSV_HEADER_DIR if is_dir else CSV_HEADER
-        entity = "ディレクトリ" if is_dir else "ファイル"
+        entity = "directory" if is_dir else "file"
 
         count = 0
         total_size = 0
@@ -492,12 +491,12 @@ class LocatePy:
 
         if count == 0:
             if not args.no_summary:
-                print(f"マッチする{entity}が見つかりませんでした。")
+                print(f"No matching {entity} found.")
         elif not args.no_summary:
             if is_dir:
-                print(f"検索完了 {count:,} 件")
+                print(f"Search complete: {count:,} entries")
             else:
-                print(f"検索完了 {count:,} 件 / {_format_size(total_size)}")
+                print(f"Search complete: {count:,} entries / {_format_size(total_size)}")
 
     def _setup_database(self, conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA journal_mode = WAL")
@@ -575,14 +574,14 @@ class LocatePy:
         return len(dir_batch)
 
     def update_db(self) -> None:
-        print("データベースの作成を開始します。")
+        print("Starting database creation.")
 
         ignore_names = set(self.config.get("ignore_names", []))
         ignore_paths = {
             os.path.normpath(p) for p in self.config.get("ignore_paths", [])
         }
 
-        # ベースディレクトリ自体のstatを取得(DirEntryがないため os.stat())
+        # Get stat for base directory itself (use os.stat() since there is no DirEntry)
         dir_accums: dict[str, _DirAccum] = {}
         for base in self.config.get("target_paths", []):
             norm_base = os.path.normpath(base)
@@ -621,7 +620,7 @@ class LocatePy:
                     batch.append(fe)
                     if len(batch) >= BATCH_SIZE:
                         total += len(batch)
-                        print(f"  {total:,} 件目を処理中... ({fe.path})")
+                        print(f"  Processing entry {total:,}... ({fe.path})")
                         conn.executemany(insert_sql, batch)
                         conn.commit()
                         batch.clear()
@@ -637,8 +636,8 @@ class LocatePy:
             _propagate_totals(dir_accums)
             dir_count = self._insert_directories(conn, dir_accums)
 
-        print(f"{total:,} 件のファイルをインデックスしました。")
-        print(f"{dir_count:,} 件のディレクトリをインデックスしました。")
+        print(f"Indexed {total:,} files.")
+        print(f"Indexed {dir_count:,} directories.")
 
     def _search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
         self._check_db()
@@ -656,7 +655,7 @@ class LocatePy:
         try:
             re.compile(pattern, flags)
         except re.error as e:
-            raise SystemExit(f"エラー: 正規表現が不正です: {e}") from e
+            raise SystemExit(f"Error: invalid regular expression: {e}") from e
         with sqlite3.connect(self.db_path) as conn:
             conn.create_function(
                 "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
@@ -671,19 +670,19 @@ class LocatePy:
 
 
 def _main() -> None:
-    parser = argparse.ArgumentParser(description="シンプルな locate コマンド")
+    parser = argparse.ArgumentParser(description="Simple locate command")
     parser.add_argument(
         "-c",
         "--config",
         metavar="PATH",
         default="locate-py.json",
-        help="設定ファイルのパス(デフォルト: locate-py.json)",
+        help="Path to config file (default: locate-py.json)",
     )
     parser.add_argument(
-        "-u", "--update", action="store_true", help="データベースを更新する"
+        "-u", "--update", action="store_true", help="Update the database"
     )
-    parser.add_argument("-r", "--regex", metavar="PATTERN", help="正規表現で検索する")
-    parser.add_argument("pattern", nargs="?", help="パターンで検索する(部分一致)")
+    parser.add_argument("-r", "--regex", metavar="PATTERN", help="Search with regex pattern")
+    parser.add_argument("pattern", nargs="?", help="Search by pattern (partial match)")
 
     all_sort_keys = sorted(set(SORT_COLUMNS) | set(DIR_SORT_COLUMNS))
     parser.add_argument(
@@ -691,7 +690,7 @@ def _main() -> None:
         choices=all_sort_keys,
         metavar="KEY",
         help=(
-            "ソートキー (--type file): "
+            "Sort key (--type file): "
             + ", ".join(SORT_COLUMNS)
             + " / (--type dir): "
             + ", ".join(DIR_SORT_COLUMNS)
@@ -702,65 +701,65 @@ def _main() -> None:
         choices=["asc", "desc"],
         dest="sort_order",
         metavar="ORDER",
-        help="ソート順: asc / desc(省略時: path→asc、その他→desc)",
+        help="Sort order: asc / desc (default: path→asc, others→desc)",
     )
     parser.add_argument(
-        "--min-size", dest="min_size", metavar="SIZE", help="最小サイズ (例: 1K, 10M)"
+        "--min-size", dest="min_size", metavar="SIZE", help="Minimum size (e.g. 1K, 10M)"
     )
     parser.add_argument(
-        "--max-size", dest="max_size", metavar="SIZE", help="最大サイズ (例: 100M, 1G)"
+        "--max-size", dest="max_size", metavar="SIZE", help="Maximum size (e.g. 100M, 1G)"
     )
     parser.add_argument(
         "--min-total-size",
         dest="min_total_size",
         metavar="SIZE",
-        help="(--type dir 専用) 配下全サイズの下限 (例: 1G)",
+        help="(--type dir only) Minimum total size under directory (e.g. 1G)",
     )
     parser.add_argument(
         "--max-total-size",
         dest="max_total_size",
         metavar="SIZE",
-        help="(--type dir 専用) 配下全サイズの上限",
+        help="(--type dir only) Maximum total size under directory",
     )
     parser.add_argument(
         "--type",
         choices=["file", "dir"],
         default="file",
         dest="type",
-        help="検索対象の種類: file(デフォルト), dir",
+        help="Type to search: file (default), dir",
     )
     parser.add_argument(
-        "--mtime-after", dest="mtime_after", metavar="DATE", help="更新日時の下限"
+        "--mtime-after", dest="mtime_after", metavar="DATE", help="Modified time lower bound"
     )
     parser.add_argument(
-        "--mtime-before", dest="mtime_before", metavar="DATE", help="更新日時の上限"
+        "--mtime-before", dest="mtime_before", metavar="DATE", help="Modified time upper bound"
     )
     parser.add_argument(
-        "--ctime-after", dest="ctime_after", metavar="DATE", help="作成日時の下限"
+        "--ctime-after", dest="ctime_after", metavar="DATE", help="Creation time lower bound"
     )
     parser.add_argument(
-        "--ctime-before", dest="ctime_before", metavar="DATE", help="作成日時の上限"
+        "--ctime-before", dest="ctime_before", metavar="DATE", help="Creation time upper bound"
     )
     parser.add_argument(
-        "--atime-after", dest="atime_after", metavar="DATE", help="アクセス日時の下限"
+        "--atime-after", dest="atime_after", metavar="DATE", help="Access time lower bound"
     )
     parser.add_argument(
-        "--atime-before", dest="atime_before", metavar="DATE", help="アクセス日時の上限"
+        "--atime-before", dest="atime_before", metavar="DATE", help="Access time upper bound"
     )
     parser.add_argument(
         "--target-dir",
         dest="target_dir",
         metavar="DIR",
-        help="指定したディレクトリ配下のみを検索対象とする",
+        help="Restrict search to the specified directory",
     )
 
-    parser.add_argument("-l", "--limit", type=int, metavar="N", help="最大マッチ数")
+    parser.add_argument("-l", "--limit", type=int, metavar="N", help="Maximum number of matches")
     parser.add_argument(
         "-i",
         "--ignore-case",
         action="store_true",
         dest="ignore_case",
-        help="大文字小文字を区別しない",
+        help="Case-insensitive search",
     )
     parser.add_argument(
         "-f",
@@ -768,25 +767,25 @@ def _main() -> None:
         choices=["tsv", "csv", "path"],
         default="tsv",
         dest="format",
-        help="出力フォーマット: tsv(デフォルト), csv, path",
+        help="Output format: tsv (default), csv, path",
     )
     parser.add_argument(
         "--no-header",
         action="store_true",
         dest="no_header",
-        help="ヘッダ行を出力しない",
+        help="Suppress header row",
     )
     parser.add_argument(
         "--no-summary",
         action="store_true",
         dest="no_summary",
-        help="合計ファイル数・サイズを出力しない",
+        help="Suppress summary line",
     )
     parser.add_argument(
         "--create-config",
         action="store_true",
         dest="create_config",
-        help="設定ファイルを作成して終了する",
+        help="Create config file and exit",
     )
 
     args = parser.parse_args()
