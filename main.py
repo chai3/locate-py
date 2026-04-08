@@ -260,70 +260,21 @@ def _parse_date_ns(s: str) -> int:
     )
 
 
-def _apply_filters_and_sort(
-    where: list[str],
-    params: list,
-    args: argparse.Namespace,
-    sort_columns: dict[str, str] = SORT_COLUMNS,
-    *,
-    is_dir: bool = False,
+def _add_size_filter(
+    where: list[str], params: list, col_expr: str, val: str, option_name: str
+) -> None:
+    try:
+        where.append(f"{col_expr} ?")
+        params.append(_parse_size(val))
+    except ValueError:
+        raise SystemExit(
+            f"エラー: {option_name} の値が不正です: {val!r}"
+        ) from None
+
+
+def _build_order_clause(
+    args: argparse.Namespace, sort_columns: dict[str, str], *, is_dir: bool
 ) -> str:
-    size_col = "size" if is_dir else "st_size"
-    if getattr(args, "target_dir", None):
-        norm = os.path.normpath(args.target_dir)
-        where.append("path LIKE ?")
-        params.append(norm + os.sep + "%")
-    if args.min_size is not None:
-        try:
-            where.append(f"{size_col} >= ?")
-            params.append(_parse_size(args.min_size))
-        except ValueError:
-            raise SystemExit(
-                f"エラー: --min-size の値が不正です: {args.min_size!r}"
-            ) from None
-    if args.max_size is not None:
-        try:
-            where.append(f"{size_col} <= ?")
-            params.append(_parse_size(args.max_size))
-        except ValueError:
-            raise SystemExit(
-                f"エラー: --max-size の値が不正です: {args.max_size!r}"
-            ) from None
-
-    if is_dir:
-        min_total = getattr(args, "min_total_size", None)
-        max_total = getattr(args, "max_total_size", None)
-        if min_total is not None:
-            try:
-                where.append("total_size >= ?")
-                params.append(_parse_size(min_total))
-            except ValueError:
-                raise SystemExit(
-                    f"エラー: --min-total-size の値が不正です: {min_total!r}"
-                ) from None
-        if max_total is not None:
-            try:
-                where.append("total_size <= ?")
-                params.append(_parse_size(max_total))
-            except ValueError:
-                raise SystemExit(
-                    f"エラー: --max-total-size の値が不正です: {max_total!r}"
-                ) from None
-
-    for col, after_attr, before_attr in [
-        ("st_mtime_ns", "mtime_after", "mtime_before"),
-        ("st_birthtime_ns", "ctime_after", "ctime_before"),
-        ("st_atime_ns", "atime_after", "atime_before"),
-    ]:
-        after_val = getattr(args, after_attr)
-        before_val = getattr(args, before_attr)
-        if after_val is not None:
-            where.append(f"{col} >= ?")
-            params.append(_parse_date_ns(after_val))
-        if before_val is not None:
-            where.append(f"{col} <= ?")
-            params.append(_parse_date_ns(before_val))
-
     if args.sort is None and args.sort_order is None:
         return ""
     sort_key = args.sort or "path"
@@ -341,6 +292,50 @@ def _apply_filters_and_sort(
     else:
         order = "DESC"
     return f" ORDER BY {sort_columns[sort_key]} {order}"
+
+
+def _apply_filters_and_sort(
+    where: list[str],
+    params: list,
+    args: argparse.Namespace,
+    sort_columns: dict[str, str] = SORT_COLUMNS,
+    *,
+    is_dir: bool = False,
+) -> str:
+    size_col = "size" if is_dir else "st_size"
+    if getattr(args, "target_dir", None):
+        norm = os.path.normpath(args.target_dir)
+        where.append("path LIKE ?")
+        params.append(norm + os.sep + "%")
+    if args.min_size is not None:
+        _add_size_filter(where, params, f"{size_col} >=", args.min_size, "--min-size")
+    if args.max_size is not None:
+        _add_size_filter(where, params, f"{size_col} <=", args.max_size, "--max-size")
+    if is_dir:
+        min_total = getattr(args, "min_total_size", None)
+        max_total = getattr(args, "max_total_size", None)
+        if min_total is not None:
+            _add_size_filter(
+                where, params, "total_size >=", min_total, "--min-total-size"
+            )
+        if max_total is not None:
+            _add_size_filter(
+                where, params, "total_size <=", max_total, "--max-total-size"
+            )
+    for col, after_attr, before_attr in [
+        ("st_mtime_ns", "mtime_after", "mtime_before"),
+        ("st_birthtime_ns", "ctime_after", "ctime_before"),
+        ("st_atime_ns", "atime_after", "atime_before"),
+    ]:
+        after_val = getattr(args, after_attr)
+        before_val = getattr(args, before_attr)
+        if after_val is not None:
+            where.append(f"{col} >= ?")
+            params.append(_parse_date_ns(after_val))
+        if before_val is not None:
+            where.append(f"{col} <= ?")
+            params.append(_parse_date_ns(before_val))
+    return _build_order_clause(args, sort_columns, is_dir)
 
 
 def _format_size(size: int) -> str:
@@ -390,6 +385,29 @@ def _print_dir_row(row: DbDirRow, delimiter: str, *,quote_path: bool = False) ->
     print(delimiter.join(fields))
 
 
+def _output_search_row(
+    row: tuple,
+    fmt: str,
+    delimiter: str,
+    *,
+    is_dir: bool,
+    quote_path: bool,
+) -> int:
+    if is_dir:
+        db_row = DbDirRow(*row)
+        if fmt == "path":
+            print(db_row.path)
+        else:
+            _print_dir_row(db_row, delimiter, quote_path=quote_path)
+        return db_row.total_size
+    db_row = DbFileRow(*row)
+    if fmt == "path":
+        print(db_row.path)
+    else:
+        _print_row(db_row, delimiter, quote_path=quote_path)
+    return db_row.st_size or 0
+
+
 _SEARCH_OPTION_ATTRS = (
     "sort",
     "sort_order",
@@ -417,7 +435,7 @@ def _has_search_options(args: argparse.Namespace) -> bool:
     return any(getattr(args, attr, None) for attr in _SEARCH_OPTION_ATTRS)
 
 
-class LocatePyApp:
+class LocatePy:
     def __init__(self, config: Config) -> None:
         self.config = config
         db_path_str = config.get("database_path")
@@ -450,7 +468,7 @@ class LocatePyApp:
         limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
         conditions = " AND ".join(where)
         full_sql = (
-            f"SELECT * FROM {table} WHERE {conditions}{order_clause}{limit_clause}"
+            f"SELECT * FROM {table} WHERE {conditions}{order_clause}{limit_clause}"  # noqa: S608
         )
 
         delimiter = "\t" if args.format == "tsv" else ","
@@ -467,21 +485,9 @@ class LocatePyApp:
                 if not args.no_header and args.format != "path":
                     print(delimiter.join(header))
                 header_written = True
-            if is_dir:
-                db_row = DbDirRow(*row)
-                if args.format == "path":
-                    print(db_row.path)
-                else:
-                    _print_dir_row(db_row, delimiter, quote_path=quote_path)
-                total_size += db_row.total_size
-            else:
-                db_row = DbFileRow(*row)
-                if args.format == "path":
-                    print(db_row.path)
-                else:
-                    _print_row(db_row, delimiter, quote_path=quote_path)
-                if db_row.st_size is not None:
-                    total_size += db_row.st_size
+            total_size += _output_search_row(
+                row, args.format, delimiter, is_dir=is_dir, quote_path=quote_path
+            )
             count += 1
 
         if count == 0:
@@ -492,6 +498,81 @@ class LocatePyApp:
                 print(f"検索完了 {count:,} 件")
             else:
                 print(f"検索完了 {count:,} 件 / {_format_size(total_size)}")
+
+    def _setup_database(self, conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA cache_size = -65536")  # 64MByte
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("DROP TABLE IF EXISTS files")
+        conn.execute("DROP TABLE IF EXISTS dirs")
+        conn.execute("""
+            CREATE TABLE files (
+                id                  INTEGER PRIMARY KEY,
+                path                TEXT NOT NULL UNIQUE,
+                st_size             INTEGER,
+                st_birthtime_ns     INTEGER,
+                st_atime_ns         INTEGER,
+                st_mtime_ns         INTEGER,
+                st_file_attributes  INTEGER,
+                lsize               INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE dirs (
+                id                  INTEGER PRIMARY KEY,
+                path                TEXT NOT NULL UNIQUE,
+                st_birthtime_ns     INTEGER,
+                st_atime_ns         INTEGER,
+                st_mtime_ns         INTEGER,
+                st_file_attributes  INTEGER,
+                files               INTEGER NOT NULL DEFAULT 0,
+                size                INTEGER NOT NULL DEFAULT 0,
+                lsize               INTEGER NOT NULL DEFAULT 0,
+                total_files         INTEGER NOT NULL DEFAULT 0,
+                total_size          INTEGER NOT NULL DEFAULT 0,
+                total_lsize         INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.commit()
+
+    def _insert_directories(
+        self, conn: sqlite3.Connection, dir_accums: dict[str, _DirAccum]
+    ) -> int:
+        dir_insert_sql = (
+            "INSERT OR REPLACE INTO dirs "
+            "(path, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, "
+            " files, size, lsize, total_files, total_size, total_lsize) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        dir_batch = [
+            (
+                path,
+                acc.st_birthtime_ns,
+                acc.st_atime_ns,
+                acc.st_mtime_ns,
+                acc.st_file_attributes,
+                acc.files,
+                acc.size,
+                acc.lsize,
+                acc.total_files,
+                acc.total_size,
+                acc.total_lsize,
+            )
+            for path, acc in dir_accums.items()
+        ]
+        for i in range(0, len(dir_batch), BATCH_SIZE):
+            conn.executemany(dir_insert_sql, dir_batch[i : i + BATCH_SIZE])
+            conn.commit()
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_path ON dirs(path)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dirs_total_size ON dirs(total_size)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dirs_total_files ON dirs(total_files)"
+        )
+        conn.commit()
+        return len(dir_batch)
 
     def update_db(self) -> None:
         print("データベースの作成を開始します。")
@@ -517,41 +598,7 @@ class LocatePyApp:
             dir_accums[norm_base] = accum
 
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = NORMAL")
-            conn.execute("PRAGMA cache_size = -65536")  # 64MByte
-            conn.execute("PRAGMA temp_store = MEMORY")
-            conn.execute("DROP TABLE IF EXISTS files")
-            conn.execute("DROP TABLE IF EXISTS dirs")
-            conn.execute("""
-                CREATE TABLE files (
-                    id                  INTEGER PRIMARY KEY,
-                    path                TEXT NOT NULL UNIQUE,
-                    st_size             INTEGER,
-                    st_birthtime_ns     INTEGER,
-                    st_atime_ns         INTEGER,
-                    st_mtime_ns         INTEGER,
-                    st_file_attributes  INTEGER,
-                    lsize               INTEGER NOT NULL DEFAULT 0
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE dirs (
-                    id                  INTEGER PRIMARY KEY,
-                    path                TEXT NOT NULL UNIQUE,
-                    st_birthtime_ns     INTEGER,
-                    st_atime_ns         INTEGER,
-                    st_mtime_ns         INTEGER,
-                    st_file_attributes  INTEGER,
-                    files               INTEGER NOT NULL DEFAULT 0,
-                    size                INTEGER NOT NULL DEFAULT 0,
-                    lsize               INTEGER NOT NULL DEFAULT 0,
-                    total_files         INTEGER NOT NULL DEFAULT 0,
-                    total_size          INTEGER NOT NULL DEFAULT 0,
-                    total_lsize         INTEGER NOT NULL DEFAULT 0
-                )
-            """)
-            conn.commit()
+            self._setup_database(conn)
 
             total = 0
             batch: list[FileEntry] = []
@@ -571,7 +618,6 @@ class LocatePyApp:
                         acc.files += 1
                         acc.size += fe.st_size or 0
                         acc.lsize += fe.lsize
-
                     batch.append(fe)
                     if len(batch) >= BATCH_SIZE:
                         total += len(batch)
@@ -588,47 +634,11 @@ class LocatePyApp:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_path ON files(path)")
             conn.commit()
 
-            # ボトムアップ伝播
             _propagate_totals(dir_accums)
-
-            # dirs テーブルへバッチ INSERT
-            dir_insert_sql = (
-                "INSERT OR REPLACE INTO dirs "
-                "(path, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, "
-                " files, size, lsize, total_files, total_size, total_lsize) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            )
-            dir_batch = [
-                (
-                    path,
-                    acc.st_birthtime_ns,
-                    acc.st_atime_ns,
-                    acc.st_mtime_ns,
-                    acc.st_file_attributes,
-                    acc.files,
-                    acc.size,
-                    acc.lsize,
-                    acc.total_files,
-                    acc.total_size,
-                    acc.total_lsize,
-                )
-                for path, acc in dir_accums.items()
-            ]
-            for i in range(0, len(dir_batch), BATCH_SIZE):
-                conn.executemany(dir_insert_sql, dir_batch[i : i + BATCH_SIZE])
-                conn.commit()
-
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_path ON dirs(path)")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_dirs_total_size ON dirs(total_size)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_dirs_total_files ON dirs(total_files)"
-            )
-            conn.commit()
+            dir_count = self._insert_directories(conn, dir_accums)
 
         print(f"{total:,} 件のファイルをインデックスしました。")
-        print(f"{len(dir_batch):,} 件のディレクトリをインデックスしました。")
+        print(f"{dir_count:,} 件のディレクトリをインデックスしました。")
 
     def _search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
         self._check_db()
@@ -786,7 +796,7 @@ def _main() -> None:
     if args.create_config:
         return
 
-    app = LocatePyApp(config)
+    app = LocatePy(config)
 
     if args.update:
         app.update_db()
