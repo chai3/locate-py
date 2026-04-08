@@ -7,10 +7,9 @@ import sys
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import NamedTuple, TypedDict
+from typing import Literal, NamedTuple, TypedDict
 
 
-DB_PATH = Path("locate-py.db")
 BATCH_SIZE = 100_000
 FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
 
@@ -160,25 +159,6 @@ def load_config(config_path: Path) -> Config:
         return json.load(f)
 
 
-def scan_dir(path: str, ignore_names: set[str], ignore_paths: set[str]) -> Iterator[os.DirEntry[str]]:
-    stack = [path]
-    while stack:
-        current = stack.pop()
-        try:
-            with os.scandir(current) as it:
-                for entry in it:
-                    if entry.is_dir(follow_symlinks=False):
-                        norm = os.path.normpath(entry.path)
-                        if norm not in ignore_paths and entry.name not in ignore_names:
-                            stack.append(entry.path)
-                    elif entry.is_file(follow_symlinks=False):
-                        yield entry
-        except PermissionError:
-            pass
-        except OSError:
-            pass
-
-
 def _scan_files_and_collect_dirs(
     path: str,
     ignore_names: set[str],
@@ -240,148 +220,6 @@ def _propagate_totals(dir_accums: dict[str, "_DirAccum"]) -> None:
             p.total_files += c.total_files
             p.total_size += c.total_size
             p.total_lsize += c.total_lsize
-
-
-def _iter_rows(config: Config) -> Iterator[FileEntry]:
-    ignore_names = set(config.get("ignore_names", []))
-    ignore_paths = {os.path.normpath(p) for p in config.get("ignore_paths", [])}
-    for base in config.get("target_paths", []):
-        for entry in scan_dir(base, ignore_names, ignore_paths):
-            st = entry.stat(follow_symlinks=False)
-            path = os.path.normpath(entry.path)
-            st_size = st.st_size
-            st_file_attributes = getattr(st, "st_file_attributes", None)
-            yield FileEntry(
-                path=path,
-                st_size=st_size,
-                st_birthtime_ns=getattr(st, "st_birthtime_ns", None),
-                st_atime_ns=st.st_atime_ns,
-                st_mtime_ns=st.st_mtime_ns,
-                st_file_attributes=st_file_attributes,
-                lsize=_calc_lsize(path, st_size, st_file_attributes),
-            )
-
-
-def update_db(config: Config) -> None:
-    print("データベースの作成を開始します。")
-
-    ignore_names = set(config.get("ignore_names", []))
-    ignore_paths = {os.path.normpath(p) for p in config.get("ignore_paths", [])}
-
-    # ベースディレクトリ自体のstatを取得（DirEntryがないため os.stat()）
-    dir_accums: dict[str, _DirAccum] = {}
-    for base in config.get("target_paths", []):
-        norm_base = os.path.normpath(base)
-        accum = _DirAccum()
-        try:
-            st = os.stat(norm_base)
-            accum.st_birthtime_ns = getattr(st, "st_birthtime_ns", None)
-            accum.st_atime_ns = st.st_atime_ns
-            accum.st_mtime_ns = st.st_mtime_ns
-            accum.st_file_attributes = getattr(st, "st_file_attributes", None)
-        except OSError:
-            pass
-        dir_accums[norm_base] = accum
-
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA cache_size = -65536")  # 64MByte
-        conn.execute("PRAGMA temp_store = MEMORY")
-        conn.execute("DROP TABLE IF EXISTS files")
-        conn.execute("DROP TABLE IF EXISTS dirs")
-        conn.execute("""
-            CREATE TABLE files (
-                id                  INTEGER PRIMARY KEY,
-                path                TEXT NOT NULL UNIQUE,
-                st_size             INTEGER,
-                st_birthtime_ns     INTEGER,
-                st_atime_ns         INTEGER,
-                st_mtime_ns         INTEGER,
-                st_file_attributes  INTEGER,
-                lsize               INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE dirs (
-                id                  INTEGER PRIMARY KEY,
-                path                TEXT NOT NULL UNIQUE,
-                st_birthtime_ns     INTEGER,
-                st_atime_ns         INTEGER,
-                st_mtime_ns         INTEGER,
-                st_file_attributes  INTEGER,
-                files               INTEGER NOT NULL DEFAULT 0,
-                size                INTEGER NOT NULL DEFAULT 0,
-                lsize               INTEGER NOT NULL DEFAULT 0,
-                total_files         INTEGER NOT NULL DEFAULT 0,
-                total_size          INTEGER NOT NULL DEFAULT 0,
-                total_lsize         INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-        conn.commit()
-
-        total = 0
-        batch: list[FileEntry] = []
-        insert_sql = (
-            "INSERT OR REPLACE INTO files "
-            "(path, st_size, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, lsize) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)"
-        )
-        for base in config.get("target_paths", []):
-            for fe in _scan_files_and_collect_dirs(base, ignore_names, ignore_paths, dir_accums):
-                parent = os.path.dirname(fe.path)
-                if parent in dir_accums:
-                    acc = dir_accums[parent]
-                    acc.files += 1
-                    acc.size += fe.st_size or 0
-                    acc.lsize += fe.lsize
-
-                batch.append(fe)
-                if len(batch) >= BATCH_SIZE:
-                    total += len(batch)
-                    print(f"  {total:,} 件目を処理中... ({fe.path})")
-                    conn.executemany(insert_sql, batch)
-                    conn.commit()
-                    batch.clear()
-
-        if batch:
-            conn.executemany(insert_sql, batch)
-            conn.commit()
-            total += len(batch)
-
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_path ON files(path)")
-        conn.commit()
-
-        # ボトムアップ伝播
-        _propagate_totals(dir_accums)
-
-        # dirs テーブルへバッチ INSERT
-        dir_insert_sql = (
-            "INSERT OR REPLACE INTO dirs "
-            "(path, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, "
-            " files, size, lsize, total_files, total_size, total_lsize) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        )
-        dir_batch = [
-            (
-                path,
-                acc.st_birthtime_ns, acc.st_atime_ns, acc.st_mtime_ns, acc.st_file_attributes,
-                acc.files, acc.size, acc.lsize,
-                acc.total_files, acc.total_size, acc.total_lsize,
-            )
-            for path, acc in dir_accums.items()
-        ]
-        for i in range(0, len(dir_batch), BATCH_SIZE):
-            conn.executemany(dir_insert_sql, dir_batch[i : i + BATCH_SIZE])
-            conn.commit()
-
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_path ON dirs(path)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_total_size ON dirs(total_size)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_total_files ON dirs(total_files)")
-        conn.commit()
-
-    print(f"{total:,} 件のファイルをインデックスしました。")
-    print(f"{len(dir_batch):,} 件のディレクトリをインデックスしました。")
 
 
 def _parse_size(s: str) -> int:
@@ -526,108 +364,9 @@ def _print_dir_row(row: DbDirRow, delimiter: str, quote_path: bool = False) -> N
     print(delimiter.join(fields))
 
 
-def _check_db() -> None:
-    if not DB_PATH.exists():
-        raise SystemExit(
-            "エラー: データベースが見つかりません。先に locate -u を実行してください。"
-        )
-
-
-def _run_search(
-    conn: sqlite3.Connection,
-    sql: str,
-    params: list,
-    args: argparse.Namespace,
-    table: str = "files",
-) -> None:
-    is_dir = table == "dirs"
-    sort_columns = DIR_SORT_COLUMNS if is_dir else SORT_COLUMNS
-    where = [sql]
-    order_clause = _apply_filters_and_sort(where, params, args, sort_columns, is_dir)
-    limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
-    full_sql = (
-        f"SELECT * FROM {table} WHERE {' AND '.join(where)}{order_clause}{limit_clause}"
-    )
-
-    delimiter = "\t" if args.format == "tsv" else ","
-    quote_path = args.format == "csv"
-    header = CSV_HEADER_DIR if is_dir else CSV_HEADER
-    entity = "ディレクトリ" if is_dir else "ファイル"
-
-    count = 0
-    total_size = 0
-    header_written = False
-
-    for row in conn.execute(full_sql, params):
-        if not header_written:
-            if not args.no_header and args.format != "path":
-                print(delimiter.join(header))
-            header_written = True
-        if is_dir:
-            db_row = DbDirRow(*row)
-            if args.format == "path":
-                print(db_row.path)
-            else:
-                _print_dir_row(db_row, delimiter, quote_path=quote_path)
-            total_size += db_row.total_size
-        else:
-            db_row = DbFileRow(*row)
-            if args.format == "path":
-                print(db_row.path)
-            else:
-                _print_row(db_row, delimiter, quote_path=quote_path)
-            if db_row.st_size is not None:
-                total_size += db_row.st_size
-        count += 1
-
-    if count == 0:
-        if not args.no_summary:
-            print(f"マッチする{entity}が見つかりませんでした。")
-    elif not args.no_summary:
-        if is_dir:
-            print(f"検索完了 {count:,} 件")
-        else:
-            print(f"検索完了 {count:,} 件 / {_format_size(total_size)}")
-
-
-def _get_table(args: argparse.Namespace) -> str:
-    return "dirs" if getattr(args, "type", "file") == "dir" else "files"
-
-
-def search_pattern(pattern: str, args: argparse.Namespace) -> None:
-    _check_db()
-    table = _get_table(args)
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            f"PRAGMA case_sensitive_like = {'OFF' if args.ignore_case else 'ON'}"
-        )
-        _run_search(conn, "path LIKE ?", [f"%{pattern}%"], args, table)
-
-
-def search_regex(pattern: str, args: argparse.Namespace) -> None:
-    _check_db()
-    table = _get_table(args)
-    flags = re.IGNORECASE if args.ignore_case else 0
-    try:
-        re.compile(pattern, flags)
-    except re.error as e:
-        raise SystemExit(f"エラー: 正規表現が不正です: {e}")
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.create_function(
-            "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
-        )
-        _run_search(conn, "path REGEXP ?", [pattern], args, table)
-
-
-def search_all(args: argparse.Namespace) -> None:
-    _check_db()
-    table = _get_table(args)
-    with sqlite3.connect(DB_PATH) as conn:
-        _run_search(conn, "1=1", [], args, table)
-
-
 _SEARCH_OPTION_ATTRS = (
     "sort",
+    "sort_order",
     "limit",
     "min_size",
     "max_size",
@@ -650,6 +389,229 @@ def _has_search_options(args: argparse.Namespace) -> bool:
     if getattr(args, "type", "file") == "dir":
         return True
     return any(getattr(args, attr, None) for attr in _SEARCH_OPTION_ATTRS)
+
+
+class LocatePyApp:
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        db_path_str = config.get("database_path")
+        self.db_path: Path = Path(db_path_str) if db_path_str else Path("locate-py.db")
+
+    def _check_db(self) -> None:
+        if not self.db_path.exists():
+            raise SystemExit(
+                "エラー: データベースが見つかりません。先に locate -u を実行してください。"
+            )
+
+    def _get_table(self, args: argparse.Namespace) -> Literal["files", "dirs"]:
+        return "dirs" if getattr(args, "type", "file") == "dir" else "files"
+
+    def _run_search(
+        self,
+        conn: sqlite3.Connection,
+        sql: str,
+        params: list,
+        args: argparse.Namespace,
+        table: Literal["files", "dirs"] = "files",
+    ) -> None:
+        is_dir = table == "dirs"
+        sort_columns = DIR_SORT_COLUMNS if is_dir else SORT_COLUMNS
+        where = [sql]
+        order_clause = _apply_filters_and_sort(where, params, args, sort_columns, is_dir)
+        limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
+        full_sql = (
+            f"SELECT * FROM {table} WHERE {' AND '.join(where)}{order_clause}{limit_clause}"
+        )
+
+        delimiter = "\t" if args.format == "tsv" else ","
+        quote_path = args.format == "csv"
+        header = CSV_HEADER_DIR if is_dir else CSV_HEADER
+        entity = "ディレクトリ" if is_dir else "ファイル"
+
+        count = 0
+        total_size = 0
+        header_written = False
+
+        for row in conn.execute(full_sql, params):
+            if not header_written:
+                if not args.no_header and args.format != "path":
+                    print(delimiter.join(header))
+                header_written = True
+            if is_dir:
+                db_row = DbDirRow(*row)
+                if args.format == "path":
+                    print(db_row.path)
+                else:
+                    _print_dir_row(db_row, delimiter, quote_path=quote_path)
+                total_size += db_row.total_size
+            else:
+                db_row = DbFileRow(*row)
+                if args.format == "path":
+                    print(db_row.path)
+                else:
+                    _print_row(db_row, delimiter, quote_path=quote_path)
+                if db_row.st_size is not None:
+                    total_size += db_row.st_size
+            count += 1
+
+        if count == 0:
+            if not args.no_summary:
+                print(f"マッチする{entity}が見つかりませんでした。")
+        elif not args.no_summary:
+            if is_dir:
+                print(f"検索完了 {count:,} 件")
+            else:
+                print(f"検索完了 {count:,} 件 / {_format_size(total_size)}")
+
+    def update_db(self) -> None:
+        print("データベースの作成を開始します。")
+
+        ignore_names = set(self.config.get("ignore_names", []))
+        ignore_paths = {os.path.normpath(p) for p in self.config.get("ignore_paths", [])}
+
+        # ベースディレクトリ自体のstatを取得（DirEntryがないため os.stat()）
+        dir_accums: dict[str, _DirAccum] = {}
+        for base in self.config.get("target_paths", []):
+            norm_base = os.path.normpath(base)
+            accum = _DirAccum()
+            try:
+                st = os.stat(norm_base)
+                accum.st_birthtime_ns = getattr(st, "st_birthtime_ns", None)
+                accum.st_atime_ns = st.st_atime_ns
+                accum.st_mtime_ns = st.st_mtime_ns
+                accum.st_file_attributes = getattr(st, "st_file_attributes", None)
+            except OSError:
+                pass
+            dir_accums[norm_base] = accum
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA cache_size = -65536")  # 64MByte
+            conn.execute("PRAGMA temp_store = MEMORY")
+            conn.execute("DROP TABLE IF EXISTS files")
+            conn.execute("DROP TABLE IF EXISTS dirs")
+            conn.execute("""
+                CREATE TABLE files (
+                    id                  INTEGER PRIMARY KEY,
+                    path                TEXT NOT NULL UNIQUE,
+                    st_size             INTEGER,
+                    st_birthtime_ns     INTEGER,
+                    st_atime_ns         INTEGER,
+                    st_mtime_ns         INTEGER,
+                    st_file_attributes  INTEGER,
+                    lsize               INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE dirs (
+                    id                  INTEGER PRIMARY KEY,
+                    path                TEXT NOT NULL UNIQUE,
+                    st_birthtime_ns     INTEGER,
+                    st_atime_ns         INTEGER,
+                    st_mtime_ns         INTEGER,
+                    st_file_attributes  INTEGER,
+                    files               INTEGER NOT NULL DEFAULT 0,
+                    size                INTEGER NOT NULL DEFAULT 0,
+                    lsize               INTEGER NOT NULL DEFAULT 0,
+                    total_files         INTEGER NOT NULL DEFAULT 0,
+                    total_size          INTEGER NOT NULL DEFAULT 0,
+                    total_lsize         INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            conn.commit()
+
+            total = 0
+            batch: list[FileEntry] = []
+            insert_sql = (
+                "INSERT OR REPLACE INTO files "
+                "(path, st_size, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, lsize) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)"
+            )
+            for base in self.config.get("target_paths", []):
+                for fe in _scan_files_and_collect_dirs(base, ignore_names, ignore_paths, dir_accums):
+                    parent = os.path.dirname(fe.path)
+                    if parent in dir_accums:
+                        acc = dir_accums[parent]
+                        acc.files += 1
+                        acc.size += fe.st_size or 0
+                        acc.lsize += fe.lsize
+
+                    batch.append(fe)
+                    if len(batch) >= BATCH_SIZE:
+                        total += len(batch)
+                        print(f"  {total:,} 件目を処理中... ({fe.path})")
+                        conn.executemany(insert_sql, batch)
+                        conn.commit()
+                        batch.clear()
+
+            if batch:
+                conn.executemany(insert_sql, batch)
+                conn.commit()
+                total += len(batch)
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_path ON files(path)")
+            conn.commit()
+
+            # ボトムアップ伝播
+            _propagate_totals(dir_accums)
+
+            # dirs テーブルへバッチ INSERT
+            dir_insert_sql = (
+                "INSERT OR REPLACE INTO dirs "
+                "(path, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, "
+                " files, size, lsize, total_files, total_size, total_lsize) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            dir_batch = [
+                (
+                    path,
+                    acc.st_birthtime_ns, acc.st_atime_ns, acc.st_mtime_ns, acc.st_file_attributes,
+                    acc.files, acc.size, acc.lsize,
+                    acc.total_files, acc.total_size, acc.total_lsize,
+                )
+                for path, acc in dir_accums.items()
+            ]
+            for i in range(0, len(dir_batch), BATCH_SIZE):
+                conn.executemany(dir_insert_sql, dir_batch[i : i + BATCH_SIZE])
+                conn.commit()
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_path ON dirs(path)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_total_size ON dirs(total_size)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_total_files ON dirs(total_files)")
+            conn.commit()
+
+        print(f"{total:,} 件のファイルをインデックスしました。")
+        print(f"{len(dir_batch):,} 件のディレクトリをインデックスしました。")
+
+    def search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
+        self._check_db()
+        table = self._get_table(args)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                f"PRAGMA case_sensitive_like = {'OFF' if args.ignore_case else 'ON'}"
+            )
+            self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], args, table)
+
+    def search_regex(self, pattern: str, args: argparse.Namespace) -> None:
+        self._check_db()
+        table = self._get_table(args)
+        flags = re.IGNORECASE if args.ignore_case else 0
+        try:
+            re.compile(pattern, flags)
+        except re.error as e:
+            raise SystemExit(f"エラー: 正規表現が不正です: {e}")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.create_function(
+                "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
+            )
+            self._run_search(conn, "path REGEXP ?", [pattern], args, table)
+
+    def search_all(self, args: argparse.Namespace) -> None:
+        self._check_db()
+        table = self._get_table(args)
+        with sqlite3.connect(self.db_path) as conn:
+            self._run_search(conn, "1=1", [], args, table)
 
 
 def main() -> None:
@@ -772,21 +734,19 @@ def main() -> None:
 
     config = load_config(Path(args.config))
 
-    global DB_PATH
-    db_path_str = config.get("database_path")
-    if db_path_str:
-        DB_PATH = Path(db_path_str)
-
     if args.create_config:
         return
-    elif args.update:
-        update_db(config)
+
+    app = LocatePyApp(config)
+
+    if args.update:
+        app.update_db()
     elif args.regex:
-        search_regex(args.regex, args)
+        app.search_regex(args.regex, args)
     elif args.pattern:
-        search_pattern(args.pattern, args)
+        app.search_pattern(args.pattern, args)
     elif _has_search_options(args):
-        search_all(args)
+        app.search_all(args)
     else:
         parser.print_help()
 
