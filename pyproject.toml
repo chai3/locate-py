@@ -1,16 +1,20 @@
 [project]
 name = "locate-py"
 version = "0.1.0"
-description = "Add your description here"
+description = "Locate files and directories instantly with a sqlite-based index"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
-locate = "main:main"
+locate = "locate_py:main"
 
 [dependency-groups]
 dev = ["ruff>=0.15.8", "ty>=0.0.26"]
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "8 days"

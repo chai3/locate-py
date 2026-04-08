@@ -161,7 +161,8 @@ def load_config(config_path: Path) -> Config:
             json.dump(config, f, ensure_ascii=False, indent=2)
         os_name = "Windows" if sys.platform == "win32" else sys.platform
         print(
-            f"{config_path} was not found, so it was created automatically. (OS: {os_name})"
+            f"{config_path} was not found, so it was created automatically."
+            f"(OS: {os_name})"
         )
         print(json.dumps(config, ensure_ascii=False, indent=2))
         return config
@@ -266,9 +267,7 @@ def _add_size_filter(
         where.append(f"{col_expr} ?")
         params.append(_parse_size(val))
     except ValueError:
-        raise SystemExit(
-            f"Error: invalid value for {option_name}: {val!r}"
-        ) from None
+        raise SystemExit(f"Error: invalid value for {option_name}: {val!r}") from None
 
 
 def _build_order_clause(
@@ -334,7 +333,7 @@ def _apply_filters_and_sort(
         if before_val is not None:
             where.append(f"{col} <= ?")
             params.append(_parse_date_ns(before_val))
-    return _build_order_clause(args, sort_columns, is_dir)
+    return _build_order_clause(args, sort_columns, is_dir=is_dir)
 
 
 def _format_size(size: int) -> str:
@@ -352,7 +351,7 @@ def _ns_to_str(ns: int | None) -> str:
     return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 display in local time
 
 
-def _print_row(row: DbFileRow, delimiter: str, *,quote_path: bool = False) -> None:
+def _print_row(row: DbFileRow, delimiter: str, *, quote_path: bool = False) -> None:
     path = f'"{row.path}"' if quote_path else row.path
     fields = [
         path,
@@ -366,7 +365,7 @@ def _print_row(row: DbFileRow, delimiter: str, *,quote_path: bool = False) -> No
     print(delimiter.join(fields))
 
 
-def _print_dir_row(row: DbDirRow, delimiter: str, *,quote_path: bool = False) -> None:
+def _print_dir_row(row: DbDirRow, delimiter: str, *, quote_path: bool = False) -> None:
     path = f'"{row.path}"' if quote_path else row.path
     fields = [
         path,
@@ -442,10 +441,7 @@ class LocatePy:
 
     def _check_db(self) -> None:
         if not self.db_path.exists():
-            raise SystemExit(
-                "Error: database not found. "
-                "Run locate -u first."
-            )
+            raise SystemExit("Error: database not found. Run locate -u first.")
 
     def _get_table(self, args: argparse.Namespace) -> Literal["files", "dirs"]:
         return "dirs" if getattr(args, "type", "file") == "dir" else "files"
@@ -496,7 +492,9 @@ class LocatePy:
             if is_dir:
                 print(f"Search complete: {count:,} entries")
             else:
-                print(f"Search complete: {count:,} entries / {_format_size(total_size)}")
+                print(
+                    f"Search complete: {count:,} entries / {_format_size(total_size)}"
+                )
 
     def _setup_database(self, conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA journal_mode = WAL")
@@ -639,7 +637,7 @@ class LocatePy:
         print(f"Indexed {total:,} files.")
         print(f"Indexed {dir_count:,} directories.")
 
-    def _search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
+    def search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
         self._check_db()
         table = self._get_table(args)
         with sqlite3.connect(self.db_path) as conn:
@@ -669,7 +667,7 @@ class LocatePy:
             self._run_search(conn, "1=1", [], args, table)
 
 
-def _main() -> None:
+def main() -> None:
     parser = argparse.ArgumentParser(description="Simple locate command")
     parser.add_argument(
         "-c",
@@ -681,7 +679,9 @@ def _main() -> None:
     parser.add_argument(
         "-u", "--update", action="store_true", help="Update the database"
     )
-    parser.add_argument("-r", "--regex", metavar="PATTERN", help="Search with regex pattern")
+    parser.add_argument(
+        "-r", "--regex", metavar="PATTERN", help="Search with regex pattern"
+    )
     parser.add_argument("pattern", nargs="?", help="Search by pattern (partial match)")
 
     all_sort_keys = sorted(set(SORT_COLUMNS) | set(DIR_SORT_COLUMNS))
@@ -704,10 +704,16 @@ def _main() -> None:
         help="Sort order: asc / desc (default: path→asc, others→desc)",
     )
     parser.add_argument(
-        "--min-size", dest="min_size", metavar="SIZE", help="Minimum size (e.g. 1K, 10M)"
+        "--min-size",
+        dest="min_size",
+        metavar="SIZE",
+        help="Minimum size (e.g. 1K, 10M)",
     )
     parser.add_argument(
-        "--max-size", dest="max_size", metavar="SIZE", help="Maximum size (e.g. 100M, 1G)"
+        "--max-size",
+        dest="max_size",
+        metavar="SIZE",
+        help="Maximum size (e.g. 100M, 1G)",
     )
     parser.add_argument(
         "--min-total-size",
@@ -729,22 +735,40 @@ def _main() -> None:
         help="Type to search: file (default), dir",
     )
     parser.add_argument(
-        "--mtime-after", dest="mtime_after", metavar="DATE", help="Modified time lower bound"
+        "--mtime-after",
+        dest="mtime_after",
+        metavar="DATE",
+        help="Modified time lower bound",
     )
     parser.add_argument(
-        "--mtime-before", dest="mtime_before", metavar="DATE", help="Modified time upper bound"
+        "--mtime-before",
+        dest="mtime_before",
+        metavar="DATE",
+        help="Modified time upper bound",
     )
     parser.add_argument(
-        "--ctime-after", dest="ctime_after", metavar="DATE", help="Creation time lower bound"
+        "--ctime-after",
+        dest="ctime_after",
+        metavar="DATE",
+        help="Creation time lower bound",
     )
     parser.add_argument(
-        "--ctime-before", dest="ctime_before", metavar="DATE", help="Creation time upper bound"
+        "--ctime-before",
+        dest="ctime_before",
+        metavar="DATE",
+        help="Creation time upper bound",
     )
     parser.add_argument(
-        "--atime-after", dest="atime_after", metavar="DATE", help="Access time lower bound"
+        "--atime-after",
+        dest="atime_after",
+        metavar="DATE",
+        help="Access time lower bound",
     )
     parser.add_argument(
-        "--atime-before", dest="atime_before", metavar="DATE", help="Access time upper bound"
+        "--atime-before",
+        dest="atime_before",
+        metavar="DATE",
+        help="Access time upper bound",
     )
     parser.add_argument(
         "--target-dir",
@@ -753,7 +777,9 @@ def _main() -> None:
         help="Restrict search to the specified directory",
     )
 
-    parser.add_argument("-l", "--limit", type=int, metavar="N", help="Maximum number of matches")
+    parser.add_argument(
+        "-l", "--limit", type=int, metavar="N", help="Maximum number of matches"
+    )
     parser.add_argument(
         "-i",
         "--ignore-case",
@@ -810,4 +836,4 @@ def _main() -> None:
 
 
 if __name__ == "__main__":
-    _main()
+    main()
