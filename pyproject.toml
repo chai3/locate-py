@@ -1,5 +1,5 @@
 [project]
-name = "locate-py"
+name = "locatepy"
 version = "0.1.0"
 description = "Locate files and directories instantly with a sqlite-based index"
 readme = "README.md"
@@ -10,14 +10,14 @@ dependencies = []
 dev = ["ruff>=0.15.8", "ty>=0.0.26"]
 
 [project.scripts]
-locatepy = "locate_py.cli:main"
+locatepy = "locatepy.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.3,<0.12.0"]
 build-backend = "uv_build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["locate_py"]
+packages = ["locatepy"]
 
 [tool.uv]
 exclude-newer = "8 days"
