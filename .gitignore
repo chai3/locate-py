@@ -1,4 +1,7 @@
-__pycache__
-.venv
-locate-py.db
 locate-py.json
+locate-py.db
+.venv
+.ruff_cache
+.pytest_cache
+.mypy_cache
+__pycache__
