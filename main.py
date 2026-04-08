@@ -129,7 +129,7 @@ class _DirAccum:
         self.total_lsize: int = 0
 
 
-def _calc_lsize(path: str, st_size: int | None, st_file_attributes: int | None) -> int:
+def _calc_lsize(_path: str, st_size: int | None, st_file_attributes: int | None) -> int:
     if st_file_attributes is not None and (
         st_file_attributes & FILE_ATTRIBUTE_RECALL_ON_OPEN
     ):
@@ -250,12 +250,13 @@ _DATE_FORMATS = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
 def _parse_date_ns(s: str) -> int:
     for fmt in _DATE_FORMATS:
         try:
-            return int(datetime.strptime(s.strip(), fmt).timestamp() * 1e9)
+            return int(datetime.strptime(s.strip(), fmt).timestamp() * 1e9)  # noqa: DTZ007 ユーザー入力はローカルタイムとみなす
         except ValueError:
             continue
     raise SystemExit(
         f"エラー: 日付フォーマットが不正です: {s!r}\n"
-        "  YYYY-MM-DD / YYYY-MM-DD HH:MM / YYYY-MM-DD HH:MM:SS のいずれかで指定してください。"
+        "  YYYY-MM-DD / YYYY-MM-DD HH:MM"
+        " / YYYY-MM-DD HH:MM:SS のいずれかで指定してください。"
     )
 
 
@@ -264,6 +265,7 @@ def _apply_filters_and_sort(
     params: list,
     args: argparse.Namespace,
     sort_columns: dict[str, str] = SORT_COLUMNS,
+    *,
     is_dir: bool = False,
 ) -> str:
     size_col = "size" if is_dir else "st_size"
@@ -276,13 +278,17 @@ def _apply_filters_and_sort(
             where.append(f"{size_col} >= ?")
             params.append(_parse_size(args.min_size))
         except ValueError:
-            raise SystemExit(f"エラー: --min-size の値が不正です: {args.min_size!r}")
+            raise SystemExit(
+                f"エラー: --min-size の値が不正です: {args.min_size!r}"
+            ) from None
     if args.max_size is not None:
         try:
             where.append(f"{size_col} <= ?")
             params.append(_parse_size(args.max_size))
         except ValueError:
-            raise SystemExit(f"エラー: --max-size の値が不正です: {args.max_size!r}")
+            raise SystemExit(
+                f"エラー: --max-size の値が不正です: {args.max_size!r}"
+            ) from None
 
     if is_dir:
         min_total = getattr(args, "min_total_size", None)
@@ -294,7 +300,7 @@ def _apply_filters_and_sort(
             except ValueError:
                 raise SystemExit(
                     f"エラー: --min-total-size の値が不正です: {min_total!r}"
-                )
+                ) from None
         if max_total is not None:
             try:
                 where.append("total_size <= ?")
@@ -302,7 +308,7 @@ def _apply_filters_and_sort(
             except ValueError:
                 raise SystemExit(
                     f"エラー: --max-total-size の値が不正です: {max_total!r}"
-                )
+                ) from None
 
     for col, after_attr, before_attr in [
         ("st_mtime_ns", "mtime_after", "mtime_before"),
@@ -324,7 +330,8 @@ def _apply_filters_and_sort(
     if sort_key not in sort_columns:
         valid = ", ".join(sort_columns)
         raise SystemExit(
-            f"エラー: --sort {sort_key!r} は --type {'dir' if is_dir else 'file'} では使用できません。"
+            f"エラー: --sort {sort_key!r} は"
+            f" --type {'dir' if is_dir else 'file'} では使用できません。"
             f" 使用可能: {valid}"
         )
     if args.sort_order:
@@ -348,10 +355,10 @@ def _format_size(size: int) -> str:
 def _ns_to_str(ns: int | None) -> str:
     if ns is None:
         return ""
-    return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 ローカルタイムで表示
 
 
-def _print_row(row: DbFileRow, delimiter: str, quote_path: bool = False) -> None:
+def _print_row(row: DbFileRow, delimiter: str, *,quote_path: bool = False) -> None:
     path = f'"{row.path}"' if quote_path else row.path
     fields = [
         path,
@@ -365,7 +372,7 @@ def _print_row(row: DbFileRow, delimiter: str, quote_path: bool = False) -> None
     print(delimiter.join(fields))
 
 
-def _print_dir_row(row: DbDirRow, delimiter: str, quote_path: bool = False) -> None:
+def _print_dir_row(row: DbDirRow, delimiter: str, *,quote_path: bool = False) -> None:
     path = f'"{row.path}"' if quote_path else row.path
     fields = [
         path,
@@ -419,7 +426,8 @@ class LocatePyApp:
     def _check_db(self) -> None:
         if not self.db_path.exists():
             raise SystemExit(
-                "エラー: データベースが見つかりません。先に locate -u を実行してください。"
+                "エラー: データベースが見つかりません。"
+                "先に locate -u を実行してください。"
             )
 
     def _get_table(self, args: argparse.Namespace) -> Literal["files", "dirs"]:
@@ -437,10 +445,13 @@ class LocatePyApp:
         sort_columns = DIR_SORT_COLUMNS if is_dir else SORT_COLUMNS
         where = [sql]
         order_clause = _apply_filters_and_sort(
-            where, params, args, sort_columns, is_dir
+            where, params, args, sort_columns, is_dir=is_dir
         )
         limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
-        full_sql = f"SELECT * FROM {table} WHERE {' AND '.join(where)}{order_clause}{limit_clause}"
+        conditions = " AND ".join(where)
+        full_sql = (
+            f"SELECT * FROM {table} WHERE {conditions}{order_clause}{limit_clause}"
+        )
 
         delimiter = "\t" if args.format == "tsv" else ","
         quote_path = args.format == "csv"
@@ -546,7 +557,8 @@ class LocatePyApp:
             batch: list[FileEntry] = []
             insert_sql = (
                 "INSERT OR REPLACE INTO files "
-                "(path, st_size, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, lsize) "
+                "(path, st_size, st_birthtime_ns, st_atime_ns, "
+                "st_mtime_ns, st_file_attributes, lsize) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
             for base in self.config.get("target_paths", []):
