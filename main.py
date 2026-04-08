@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, NamedTuple, TypedDict
 
-
 BATCH_SIZE = 100_000
 FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
 
@@ -23,14 +22,14 @@ SORT_COLUMNS = {
 }
 
 DIR_SORT_COLUMNS = {
-    "path":        "path",
-    "size":        "size",
-    "lsize":       "lsize",
-    "mtime":       "st_mtime_ns",
-    "ctime":       "st_birthtime_ns",
-    "atime":       "st_atime_ns",
-    "files":       "files",
-    "total_size":  "total_size",
+    "path": "path",
+    "size": "size",
+    "lsize": "lsize",
+    "mtime": "st_mtime_ns",
+    "ctime": "st_birthtime_ns",
+    "atime": "st_atime_ns",
+    "files": "files",
+    "total_size": "total_size",
     "total_lsize": "total_lsize",
     "total_files": "total_files",
 }
@@ -105,8 +104,16 @@ class DbDirRow(NamedTuple):
 
 class _DirAccum:
     __slots__ = (
-        "st_birthtime_ns", "st_atime_ns", "st_mtime_ns", "st_file_attributes",
-        "files", "size", "lsize", "total_files", "total_size", "total_lsize",
+        "files",
+        "lsize",
+        "size",
+        "st_atime_ns",
+        "st_birthtime_ns",
+        "st_file_attributes",
+        "st_mtime_ns",
+        "total_files",
+        "total_lsize",
+        "total_size",
     )
 
     def __init__(self) -> None:
@@ -123,7 +130,9 @@ class _DirAccum:
 
 
 def _calc_lsize(path: str, st_size: int | None, st_file_attributes: int | None) -> int:
-    if st_file_attributes is not None and (st_file_attributes & FILE_ATTRIBUTE_RECALL_ON_OPEN):
+    if st_file_attributes is not None and (
+        st_file_attributes & FILE_ATTRIBUTE_RECALL_ON_OPEN
+    ):
         return 0
     return st_size if st_size is not None else 0
 
@@ -137,13 +146,12 @@ def _default_config() -> Config:
             "ignore_paths": [],
             "ignore_names": [],
         }
-    else:
-        return {
-            "database_path": "locate-py.db",
-            "target_paths": [cwd],
-            "ignore_paths": ["/dev", "/proc", "/sys"],
-            "ignore_names": [""],
-        }
+    return {
+        "database_path": "locate-py.db",
+        "target_paths": [cwd],
+        "ignore_paths": ["/dev", "/proc", "/sys"],
+        "ignore_names": [""],
+    }
 
 
 def load_config(config_path: Path) -> Config:
@@ -152,7 +160,9 @@ def load_config(config_path: Path) -> Config:
         with config_path.open("w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
         os_name = "Windows" if sys.platform == "win32" else sys.platform
-        print(f"{config_path} が見つからなかったため、自動作成しました。(OS: {os_name})")
+        print(
+            f"{config_path} が見つからなかったため、自動作成しました。(OS: {os_name})"
+        )
         print(json.dumps(config, ensure_ascii=False, indent=2))
         return config
     with config_path.open(encoding="utf-8") as f:
@@ -178,10 +188,14 @@ def _scan_files_and_collect_dirs(
                             accum = _DirAccum()
                             try:
                                 st = entry.stat(follow_symlinks=False)
-                                accum.st_birthtime_ns = getattr(st, "st_birthtime_ns", None)
+                                accum.st_birthtime_ns = getattr(
+                                    st, "st_birthtime_ns", None
+                                )
                                 accum.st_atime_ns = st.st_atime_ns
                                 accum.st_mtime_ns = st.st_mtime_ns
-                                accum.st_file_attributes = getattr(st, "st_file_attributes", None)
+                                accum.st_file_attributes = getattr(
+                                    st, "st_file_attributes", None
+                                )
                             except OSError:
                                 pass
                             dir_accums[norm] = accum
@@ -278,13 +292,17 @@ def _apply_filters_and_sort(
                 where.append("total_size >= ?")
                 params.append(_parse_size(min_total))
             except ValueError:
-                raise SystemExit(f"エラー: --min-total-size の値が不正です: {min_total!r}")
+                raise SystemExit(
+                    f"エラー: --min-total-size の値が不正です: {min_total!r}"
+                )
         if max_total is not None:
             try:
                 where.append("total_size <= ?")
                 params.append(_parse_size(max_total))
             except ValueError:
-                raise SystemExit(f"エラー: --max-total-size の値が不正です: {max_total!r}")
+                raise SystemExit(
+                    f"エラー: --max-total-size の値が不正です: {max_total!r}"
+                )
 
     for col, after_attr, before_attr in [
         ("st_mtime_ns", "mtime_after", "mtime_before"),
@@ -319,8 +337,9 @@ def _apply_filters_and_sort(
 
 
 def _format_size(size: int) -> str:
+    size: float | int
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if size < 1024:
+        if size < 1024:  # noqa: PLR2004
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} PB"
@@ -417,11 +436,11 @@ class LocatePyApp:
         is_dir = table == "dirs"
         sort_columns = DIR_SORT_COLUMNS if is_dir else SORT_COLUMNS
         where = [sql]
-        order_clause = _apply_filters_and_sort(where, params, args, sort_columns, is_dir)
-        limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
-        full_sql = (
-            f"SELECT * FROM {table} WHERE {' AND '.join(where)}{order_clause}{limit_clause}"
+        order_clause = _apply_filters_and_sort(
+            where, params, args, sort_columns, is_dir
         )
+        limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
+        full_sql = f"SELECT * FROM {table} WHERE {' AND '.join(where)}{order_clause}{limit_clause}"
 
         delimiter = "\t" if args.format == "tsv" else ","
         quote_path = args.format == "csv"
@@ -467,9 +486,11 @@ class LocatePyApp:
         print("データベースの作成を開始します。")
 
         ignore_names = set(self.config.get("ignore_names", []))
-        ignore_paths = {os.path.normpath(p) for p in self.config.get("ignore_paths", [])}
+        ignore_paths = {
+            os.path.normpath(p) for p in self.config.get("ignore_paths", [])
+        }
 
-        # ベースディレクトリ自体のstatを取得（DirEntryがないため os.stat()）
+        # ベースディレクトリ自体のstatを取得(DirEntryがないため os.stat())
         dir_accums: dict[str, _DirAccum] = {}
         for base in self.config.get("target_paths", []):
             norm_base = os.path.normpath(base)
@@ -529,7 +550,9 @@ class LocatePyApp:
                 "VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
             for base in self.config.get("target_paths", []):
-                for fe in _scan_files_and_collect_dirs(base, ignore_names, ignore_paths, dir_accums):
+                for fe in _scan_files_and_collect_dirs(
+                    base, ignore_names, ignore_paths, dir_accums
+                ):
                     parent = os.path.dirname(fe.path)
                     if parent in dir_accums:
                         acc = dir_accums[parent]
@@ -566,9 +589,16 @@ class LocatePyApp:
             dir_batch = [
                 (
                     path,
-                    acc.st_birthtime_ns, acc.st_atime_ns, acc.st_mtime_ns, acc.st_file_attributes,
-                    acc.files, acc.size, acc.lsize,
-                    acc.total_files, acc.total_size, acc.total_lsize,
+                    acc.st_birthtime_ns,
+                    acc.st_atime_ns,
+                    acc.st_mtime_ns,
+                    acc.st_file_attributes,
+                    acc.files,
+                    acc.size,
+                    acc.lsize,
+                    acc.total_files,
+                    acc.total_size,
+                    acc.total_lsize,
                 )
                 for path, acc in dir_accums.items()
             ]
@@ -577,14 +607,18 @@ class LocatePyApp:
                 conn.commit()
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_path ON dirs(path)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_total_size ON dirs(total_size)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_total_files ON dirs(total_files)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dirs_total_size ON dirs(total_size)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dirs_total_files ON dirs(total_files)"
+            )
             conn.commit()
 
         print(f"{total:,} 件のファイルをインデックスしました。")
         print(f"{len(dir_batch):,} 件のディレクトリをインデックスしました。")
 
-    def search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
+    def _search_pattern(self, pattern: str, args: argparse.Namespace) -> None:
         self._check_db()
         table = self._get_table(args)
         with sqlite3.connect(self.db_path) as conn:
@@ -600,7 +634,7 @@ class LocatePyApp:
         try:
             re.compile(pattern, flags)
         except re.error as e:
-            raise SystemExit(f"エラー: 正規表現が不正です: {e}")
+            raise SystemExit(f"エラー: 正規表現が不正です: {e}") from e
         with sqlite3.connect(self.db_path) as conn:
             conn.create_function(
                 "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
@@ -614,19 +648,20 @@ class LocatePyApp:
             self._run_search(conn, "1=1", [], args, table)
 
 
-def main() -> None:
+def _main() -> None:
     parser = argparse.ArgumentParser(description="シンプルな locate コマンド")
     parser.add_argument(
-        "-c", "--config",
+        "-c",
+        "--config",
         metavar="PATH",
         default="locate-py.json",
-        help="設定ファイルのパス（デフォルト: locate-py.json）",
+        help="設定ファイルのパス(デフォルト: locate-py.json)",
     )
     parser.add_argument(
         "-u", "--update", action="store_true", help="データベースを更新する"
     )
     parser.add_argument("-r", "--regex", metavar="PATTERN", help="正規表現で検索する")
-    parser.add_argument("pattern", nargs="?", help="パターンで検索する（部分一致）")
+    parser.add_argument("pattern", nargs="?", help="パターンで検索する(部分一致)")
 
     all_sort_keys = sorted(set(SORT_COLUMNS) | set(DIR_SORT_COLUMNS))
     parser.add_argument(
@@ -634,8 +669,10 @@ def main() -> None:
         choices=all_sort_keys,
         metavar="KEY",
         help=(
-            "ソートキー (--type file): " + ", ".join(SORT_COLUMNS)
-            + " / (--type dir): " + ", ".join(DIR_SORT_COLUMNS)
+            "ソートキー (--type file): "
+            + ", ".join(SORT_COLUMNS)
+            + " / (--type dir): "
+            + ", ".join(DIR_SORT_COLUMNS)
         ),
     )
     parser.add_argument(
@@ -643,7 +680,7 @@ def main() -> None:
         choices=["asc", "desc"],
         dest="sort_order",
         metavar="ORDER",
-        help="ソート順: asc / desc（省略時: path→asc、その他→desc）",
+        help="ソート順: asc / desc(省略時: path→asc、その他→desc)",
     )
     parser.add_argument(
         "--min-size", dest="min_size", metavar="SIZE", help="最小サイズ (例: 1K, 10M)"
@@ -668,7 +705,7 @@ def main() -> None:
         choices=["file", "dir"],
         default="file",
         dest="type",
-        help="検索対象の種類: file（デフォルト）, dir",
+        help="検索対象の種類: file(デフォルト), dir",
     )
     parser.add_argument(
         "--mtime-after", dest="mtime_after", metavar="DATE", help="更新日時の下限"
@@ -709,7 +746,7 @@ def main() -> None:
         choices=["tsv", "csv", "path"],
         default="tsv",
         dest="format",
-        help="出力フォーマット: tsv（デフォルト）, csv, path",
+        help="出力フォーマット: tsv(デフォルト), csv, path",
     )
     parser.add_argument(
         "--no-header",
@@ -752,4 +789,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    _main()

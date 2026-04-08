@@ -8,3 +8,23 @@ dependencies = []
 
 [project.scripts]
 locate = "main:main"
+
+[dependency-groups]
+dev = ["ruff>=0.15.8", "ty>=0.0.26"]
+
+[tool.uv]
+exclude-newer = "8 days"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D203",   # D211と競合するため
+    "D213",   # D212と競合するため
+    "COM812", # フォーマッタと競合するため
+    "D",
+    "T201",
+    "TRY003",
+    "PTH",
+    "EM101",
+    "EM102",
+]
