@@ -410,6 +410,34 @@ def _print_dir_row(row: DbDirRow, delimiter: str, *, quote_path: bool = False) -
     print(delimiter.join(fields))
 
 
+def _row_to_dict(row: tuple, *, is_dir: bool) -> dict:
+    if is_dir:
+        r = DbDirRow(*row)
+        return {
+            "path": r.path,
+            "files": r.files,
+            "size": r.size,
+            "lsize": r.lsize,
+            "total_files": r.total_files,
+            "total_size": r.total_size,
+            "total_lsize": r.total_lsize,
+            "birthtime": _ns_to_str(r.st_birthtime_ns),
+            "atime": _ns_to_str(r.st_atime_ns),
+            "mtime": _ns_to_str(r.st_mtime_ns),
+            "attributes": r.st_file_attributes,
+        }
+    r = DbFileRow(*row)
+    return {
+        "path": r.path,
+        "size": r.st_size,
+        "lsize": r.lsize,
+        "birthtime": _ns_to_str(r.st_birthtime_ns),
+        "atime": _ns_to_str(r.st_atime_ns),
+        "mtime": _ns_to_str(r.st_mtime_ns),
+        "attributes": r.st_file_attributes,
+    }
+
+
 def _output_search_row(
     row: tuple,
     fmt: str,
@@ -502,21 +530,33 @@ class LocatePy:
         count = 0
         total_size = 0
         header_written = False
+        json_results: list[dict] = []
 
         for row in conn.execute(full_sql, params):
             if not header_written:
-                if not args.no_header and args.format != "path":
+                if not args.no_header and args.format not in ("path", "json", "jsonl"):
                     print(delimiter.join(header))
                 header_written = True
-            total_size += _output_search_row(
-                row, args.format, delimiter, is_dir=is_dir, quote_path=quote_path
-            )
+            if args.format in ("json", "jsonl"):
+                d = _row_to_dict(row, is_dir=is_dir)
+                total_size += d["total_size"] if is_dir else (d["size"] or 0)
+                if args.format == "jsonl":
+                    print(json.dumps(d, ensure_ascii=False))
+                else:
+                    json_results.append(d)
+            else:
+                total_size += _output_search_row(
+                    row, args.format, delimiter, is_dir=is_dir, quote_path=quote_path
+                )
             count += 1
+
+        if args.format == "json":
+            print(json.dumps(json_results, ensure_ascii=False, indent=2))
 
         if count == 0:
             if not args.no_summary:
                 print(f"No matching {entity} found.")
-        elif not args.no_summary:
+        elif not args.no_summary and args.format not in ("json", "jsonl"):
             if is_dir:
                 print(f"Search complete: {count:,} entries")
             else:
@@ -818,10 +858,10 @@ def main() -> None:
     parser.add_argument(
         "-f",
         "--format",
-        choices=["tsv", "csv", "path"],
+        choices=["tsv", "csv", "path", "json", "jsonl"],
         default="tsv",
         dest="format",
-        help="Output format: tsv (default), csv, path",
+        help="Output format: tsv (default), csv, path, json, jsonl",
     )
     parser.add_argument(
         "--no-header",
