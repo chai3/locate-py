@@ -7,7 +7,7 @@ import sys
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, NamedTuple, TypedDict
+from typing import Literal, NamedTuple, TypedDict, cast
 
 BATCH_SIZE = 100_000
 FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
@@ -57,6 +57,30 @@ CSV_HEADER_DIR = [
     "mtime",
     "attributes",
 ]
+
+
+class FileResult(TypedDict):
+    path: str
+    size: int | None
+    lsize: int
+    birthtime: str
+    atime: str
+    mtime: str
+    attributes: int | None
+
+
+class DirResult(TypedDict):
+    path: str
+    files: int
+    size: int
+    lsize: int
+    total_files: int
+    total_size: int
+    total_lsize: int
+    birthtime: str
+    atime: str
+    mtime: str
+    attributes: int | None
 
 
 class Config(TypedDict, total=False):
@@ -378,39 +402,7 @@ def _ns_to_str(ns: int | None) -> str:
     return datetime.fromtimestamp(ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 display in local time
 
 
-def _print_row(row: DbFileRow, delimiter: str, *, quote_path: bool = False) -> None:
-    path = f'"{row.path}"' if quote_path else row.path
-    fields = [
-        path,
-        str(row.st_size) if row.st_size is not None else "",
-        str(row.lsize),
-        _ns_to_str(row.st_birthtime_ns),
-        _ns_to_str(row.st_atime_ns),
-        _ns_to_str(row.st_mtime_ns),
-        str(row.st_file_attributes) if row.st_file_attributes is not None else "",
-    ]
-    print(delimiter.join(fields))
-
-
-def _print_dir_row(row: DbDirRow, delimiter: str, *, quote_path: bool = False) -> None:
-    path = f'"{row.path}"' if quote_path else row.path
-    fields = [
-        path,
-        str(row.files),
-        str(row.size),
-        str(row.lsize),
-        str(row.total_files),
-        str(row.total_size),
-        str(row.total_lsize),
-        _ns_to_str(row.st_birthtime_ns),
-        _ns_to_str(row.st_atime_ns),
-        _ns_to_str(row.st_mtime_ns),
-        str(row.st_file_attributes) if row.st_file_attributes is not None else "",
-    ]
-    print(delimiter.join(fields))
-
-
-def _row_to_dict(row: tuple, *, is_dir: bool) -> dict:
+def _row_to_dict(row: tuple, *, is_dir: bool) -> FileResult | DirResult:
     if is_dir:
         r = DbDirRow(*row)
         return {
@@ -438,27 +430,81 @@ def _row_to_dict(row: tuple, *, is_dir: bool) -> dict:
     }
 
 
-def _output_search_row(
-    row: tuple,
-    fmt: str,
-    delimiter: str,
+def _print_results(
+    results: Iterator[FileResult | DirResult],
+    args: LocateArgs,
     *,
     is_dir: bool,
-    quote_path: bool,
-) -> int:
-    if is_dir:
-        db_row = DbDirRow(*row)
-        if fmt == "path":
-            print(db_row.path)
+) -> None:
+    delimiter = "\t" if args.format == "tsv" else ","
+    header = CSV_HEADER_DIR if is_dir else CSV_HEADER
+    entity = "directory" if is_dir else "file"
+
+    count = 0
+    total_size = 0
+    header_written = False
+    json_results: list[FileResult | DirResult] = []
+
+    for d in results:
+        if not header_written:
+            if not args.no_header and args.format not in ("path", "json", "jsonl"):
+                print(delimiter.join(header))
+            header_written = True
+
+        if args.format == "path":
+            print(d["path"])
+        elif args.format == "jsonl":
+            print(json.dumps(d, ensure_ascii=False))
+        elif args.format == "json":
+            json_results.append(d)
         else:
-            _print_dir_row(db_row, delimiter, quote_path=quote_path)
-        return db_row.total_size
-    db_row = DbFileRow(*row)
-    if fmt == "path":
-        print(db_row.path)
-    else:
-        _print_row(db_row, delimiter, quote_path=quote_path)
-    return db_row.st_size or 0
+            # tsv / csv
+            path = f'"{d["path"]}"' if args.format == "csv" else d["path"]
+            if is_dir:
+                dr = cast(DirResult, d)
+                fields = [
+                    path,
+                    str(dr["files"]),
+                    str(dr["size"]),
+                    str(dr["lsize"]),
+                    str(dr["total_files"]),
+                    str(dr["total_size"]),
+                    str(dr["total_lsize"]),
+                    dr["birthtime"],
+                    dr["atime"],
+                    dr["mtime"],
+                    str(dr["attributes"]) if dr["attributes"] is not None else "",
+                ]
+            else:
+                fr = cast(FileResult, d)
+                fields = [
+                    path,
+                    str(fr["size"]) if fr["size"] is not None else "",
+                    str(fr["lsize"]),
+                    fr["birthtime"],
+                    fr["atime"],
+                    fr["mtime"],
+                    str(fr["attributes"]) if fr["attributes"] is not None else "",
+                ]
+            print(delimiter.join(fields))
+
+        if is_dir:
+            total_size += cast(DirResult, d)["total_size"]
+        else:
+            total_size += cast(FileResult, d)["size"] or 0
+        count += 1
+
+    if args.format == "json":
+        print(json.dumps(json_results, ensure_ascii=False, indent=2))
+
+    if count == 0:
+        if not args.no_summary:
+            print(f"No matching {entity} found.")
+    elif not args.no_summary and args.format not in ("json", "jsonl"):
+        if is_dir:
+            print(f"Search complete: {count:,} entries")
+        else:
+            print(f"Search complete: {count:,} entries / {_format_size(total_size)}")
 
 
 _SEARCH_OPTION_ATTRS = (
@@ -508,61 +554,20 @@ class LocatePy:
         sql: str,
         params: list,
         table: Literal["files", "dirs"] = "files",
-    ) -> None:
-        args = self.args
+    ) -> Iterator[FileResult | DirResult]:
         is_dir = table == "dirs"
         sort_columns = DIR_SORT_COLUMNS if is_dir else SORT_COLUMNS
         where = [sql]
         order_clause = _apply_filters_and_sort(
-            where, params, args, sort_columns, is_dir=is_dir
+            where, params, self.args, sort_columns, is_dir=is_dir
         )
-        limit_clause = f" LIMIT {args.limit}" if args.limit is not None else ""
+        limit_clause = f" LIMIT {self.args.limit}" if self.args.limit is not None else ""
         conditions = " AND ".join(where)
         full_sql = (
             f"SELECT * FROM {table} WHERE {conditions}{order_clause}{limit_clause}"  # noqa: S608
         )
-
-        delimiter = "\t" if args.format == "tsv" else ","
-        quote_path = args.format == "csv"
-        header = CSV_HEADER_DIR if is_dir else CSV_HEADER
-        entity = "directory" if is_dir else "file"
-
-        count = 0
-        total_size = 0
-        header_written = False
-        json_results: list[dict] = []
-
         for row in conn.execute(full_sql, params):
-            if not header_written:
-                if not args.no_header and args.format not in ("path", "json", "jsonl"):
-                    print(delimiter.join(header))
-                header_written = True
-            if args.format in ("json", "jsonl"):
-                d = _row_to_dict(row, is_dir=is_dir)
-                total_size += d["total_size"] if is_dir else (d["size"] or 0)
-                if args.format == "jsonl":
-                    print(json.dumps(d, ensure_ascii=False))
-                else:
-                    json_results.append(d)
-            else:
-                total_size += _output_search_row(
-                    row, args.format, delimiter, is_dir=is_dir, quote_path=quote_path
-                )
-            count += 1
-
-        if args.format == "json":
-            print(json.dumps(json_results, ensure_ascii=False, indent=2))
-
-        if count == 0:
-            if not args.no_summary:
-                print(f"No matching {entity} found.")
-        elif not args.no_summary and args.format not in ("json", "jsonl"):
-            if is_dir:
-                print(f"Search complete: {count:,} entries")
-            else:
-                print(
-                    f"Search complete: {count:,} entries / {_format_size(total_size)}"
-                )
+            yield _row_to_dict(row, is_dir=is_dir)
 
     def _setup_database(self, conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA journal_mode = WAL")
@@ -639,8 +644,8 @@ class LocatePy:
         conn.commit()
         return len(dir_batch)
 
-    def update_db(self) -> None:
-        print("Starting database creation.")
+    def update_db(self) -> Iterator[str]:
+        yield "Starting database creation."
 
         ignore_names = set(self.config.get("ignore_names", []))
         ignore_paths = {
@@ -686,7 +691,7 @@ class LocatePy:
                     batch.append(fe)
                     if len(batch) >= BATCH_SIZE:
                         total += len(batch)
-                        print(f"  Processing entry {total:,}... ({fe.path})")
+                        yield f"  Processing entry {total:,}... ({fe.path})"
                         conn.executemany(insert_sql, batch)
                         conn.commit()
                         batch.clear()
@@ -702,19 +707,19 @@ class LocatePy:
             _propagate_totals(dir_accums)
             dir_count = self._insert_directories(conn, dir_accums)
 
-        print(f"Indexed {total:,} files.")
-        print(f"Indexed {dir_count:,} directories.")
+        yield f"Indexed {total:,} files."
+        yield f"Indexed {dir_count:,} directories."
 
-    def search_pattern(self, pattern: str) -> None:
+    def search_pattern(self, pattern: str) -> Iterator[FileResult | DirResult]:
         self._check_db()
         table = self._get_table()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 f"PRAGMA case_sensitive_like = {'OFF' if self.args.ignore_case else 'ON'}"
             )
-            self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], table)
+            yield from self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], table)
 
-    def search_regex(self, pattern: str) -> None:
+    def search_regex(self, pattern: str) -> Iterator[FileResult | DirResult]:
         self._check_db()
         table = self._get_table()
         flags = re.IGNORECASE if self.args.ignore_case else 0
@@ -726,13 +731,13 @@ class LocatePy:
             conn.create_function(
                 "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
             )
-            self._run_search(conn, "path REGEXP ?", [pattern], table)
+            yield from self._run_search(conn, "path REGEXP ?", [pattern], table)
 
-    def search_all(self) -> None:
+    def search_all(self) -> Iterator[FileResult | DirResult]:
         self._check_db()
         table = self._get_table()
         with sqlite3.connect(self.db_path) as conn:
-            self._run_search(conn, "1=1", [], table)
+            yield from self._run_search(conn, "1=1", [], table)
 
 
 def main() -> None:
@@ -891,14 +896,16 @@ def main() -> None:
 
     app = LocatePy(config, args)
 
+    is_dir = args.type == "dir"
     if args.update:
-        app.update_db()
+        for msg in app.update_db():
+            print(msg)
     elif args.regex:
-        app.search_regex(args.regex)
+        _print_results(app.search_regex(args.regex), args, is_dir=is_dir)
     elif args.pattern:
-        app.search_pattern(args.pattern)
+        _print_results(app.search_pattern(args.pattern), args, is_dir=is_dir)
     elif _has_search_options(args):
-        app.search_all()
+        _print_results(app.search_all(), args, is_dir=is_dir)
     else:
         parser.print_help()
 

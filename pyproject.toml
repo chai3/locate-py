@@ -4,13 +4,16 @@ version = "0.1.0"
 description = "Locate files and directories instantly with a sqlite-based index"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "mcp>=1.26.0",
+]
 
 [dependency-groups]
 dev = ["ruff>=0.15.8", "ty>=0.0.26"]
 
 [project.scripts]
 locatepy = "locatepy.cli:main"
+locatepy-mcp = "locatepy.mcp:main"
 
 [build-system]
 requires = ["uv_build>=0.11.3,<0.12.0"]
