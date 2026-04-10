@@ -1,4 +1,5 @@
 """MCP server for locatepy."""
+import argparse
 import re
 from pathlib import Path
 from typing import Annotated
@@ -12,6 +13,8 @@ from locatepy.cli import (
     LocatePy,
     load_config,
 )
+
+_state: dict[str, str] = {"config_path": "locate-py.json"}
 
 mcp = FastMCP(
     name="locatepy",
@@ -67,7 +70,7 @@ def _make_locate_args(
 
 
 def _make_app(config_path: str | None, **kwargs) -> LocatePy:
-    path = Path(config_path) if config_path else Path("locate-py.json")
+    path = Path(config_path) if config_path else Path(_state["config_path"])
     config = load_config(path)
     return LocatePy(config, _make_locate_args(**kwargs))
 
@@ -161,7 +164,17 @@ def update_index(
     return "\n".join(app.update_db())
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="MCP server for locatepy")
+    parser.add_argument(
+        "-c",
+        "--config",
+        metavar="PATH",
+        default="locate-py.json",
+        help="Path to config file (default: locate-py.json)",
+    )
+    args = parser.parse_args(argv)
+    _state["config_path"] = args.config
     mcp.run(transport="stdio")
 
 

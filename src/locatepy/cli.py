@@ -151,6 +151,7 @@ class LocateArgs(argparse.Namespace):
     no_header: bool
     no_summary: bool
     create_config: bool
+    mcp: bool
 
 
 class _DirAccum:
@@ -561,7 +562,9 @@ class LocatePy:
         order_clause = _apply_filters_and_sort(
             where, params, self.args, sort_columns, is_dir=is_dir
         )
-        limit_clause = f" LIMIT {self.args.limit}" if self.args.limit is not None else ""
+        limit_clause = (
+            f" LIMIT {self.args.limit}" if self.args.limit is not None else ""
+        )
         conditions = " AND ".join(where)
         full_sql = (
             f"SELECT * FROM {table} WHERE {conditions}{order_clause}{limit_clause}"  # noqa: S608
@@ -886,8 +889,19 @@ def main() -> None:
         dest="create_config",
         help="Create config file and exit",
     )
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="Run as MCP server (stdio transport)",
+    )
 
     args = parser.parse_args(namespace=LocateArgs())
+
+    if args.mcp:
+        from locatepy import mcp as mcp_module  # noqa: PLC0415
+
+        mcp_module.main(["--config", args.config])
+        return
 
     config = load_config(Path(args.config))
 
