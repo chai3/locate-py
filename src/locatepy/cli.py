@@ -156,13 +156,13 @@ class LocateArgs(argparse.Namespace):
 
 class _DirAccum:
     __slots__ = (
-        "files",
-        "local_size",
-        "size",
         "atime_ns",
         "birthtime_ns",
         "file_attributes",
+        "files",
+        "local_size",
         "mtime_ns",
+        "size",
         "total_files",
         "total_local_size",
         "total_size",
@@ -354,7 +354,7 @@ def _apply_filters_and_sort(
     *,
     is_dir: bool = False,
 ) -> str:
-    if getattr(args, "target_dir", None):
+    if args.target_dir:
         norm = os.path.normpath(args.target_dir)
         where.append("path LIKE ?")
         params.append(norm + os.sep + "%")
@@ -432,6 +432,59 @@ def _row_to_dict(row: tuple, *, is_dir: bool) -> FileResult | DirResult:
     }
 
 
+def _format_csv_fields(
+    d: FileResult | DirResult,
+    path: str,
+    *,
+    is_dir: bool,
+) -> list[str]:
+    if is_dir:
+        dr = cast("DirResult", d)
+        return [
+            path,
+            str(dr["files"]),
+            str(dr["size"]),
+            str(dr["local_size"]),
+            str(dr["total_files"]),
+            str(dr["total_size"]),
+            str(dr["total_local_size"]),
+            dr["created_time"],
+            dr["accessed_time"],
+            dr["modified_time"],
+            str(dr["attributes"]) if dr["attributes"] is not None else "",
+        ]
+    fr = cast("FileResult", d)
+    return [
+        path,
+        str(fr["size"]) if fr["size"] is not None else "",
+        str(fr["local_size"]),
+        fr["created_time"],
+        fr["accessed_time"],
+        fr["modified_time"],
+        str(fr["attributes"]) if fr["attributes"] is not None else "",
+    ]
+
+
+def _get_entry_size(d: FileResult | DirResult, *, is_dir: bool) -> int:
+    if is_dir:
+        return cast("DirResult", d)["total_size"]
+    return cast("FileResult", d)["size"] or 0
+
+
+def _print_summary(
+    count: int, total_size: int, args: LocateArgs, *, is_dir: bool
+) -> None:
+    entity = "directory" if is_dir else "file"
+    if count == 0:
+        if not args.no_summary:
+            print(f"No matching {entity} found.")
+    elif not args.no_summary and args.format not in ("json", "jsonl", "path"):
+        if is_dir:
+            print(f"Search complete: {count:,} entries")
+        else:
+            print(f"Search complete: {count:,} entries / {_format_size(total_size)}")
+
+
 def _print_results(
     results: Iterator[FileResult | DirResult],
     args: LocateArgs,
@@ -440,7 +493,6 @@ def _print_results(
 ) -> None:
     delimiter = "\t" if args.format == "tsv" else ","
     header = CSV_HEADER_DIR if is_dir else CSV_HEADER
-    entity = "directory" if is_dir else "file"
 
     count = 0
     total_size = 0
@@ -462,51 +514,15 @@ def _print_results(
         else:
             # tsv / csv
             path = f'"{d["path"]}"' if args.format == "csv" else d["path"]
-            if is_dir:
-                dr = cast(DirResult, d)
-                fields = [
-                    path,
-                    str(dr["files"]),
-                    str(dr["size"]),
-                    str(dr["local_size"]),
-                    str(dr["total_files"]),
-                    str(dr["total_size"]),
-                    str(dr["total_local_size"]),
-                    dr["created_time"],
-                    dr["accessed_time"],
-                    dr["modified_time"],
-                    str(dr["attributes"]) if dr["attributes"] is not None else "",
-                ]
-            else:
-                fr = cast(FileResult, d)
-                fields = [
-                    path,
-                    str(fr["size"]) if fr["size"] is not None else "",
-                    str(fr["local_size"]),
-                    fr["created_time"],
-                    fr["accessed_time"],
-                    fr["modified_time"],
-                    str(fr["attributes"]) if fr["attributes"] is not None else "",
-                ]
-            print(delimiter.join(fields))
+            print(delimiter.join(_format_csv_fields(d, path, is_dir=is_dir)))
 
-        if is_dir:
-            total_size += cast(DirResult, d)["total_size"]
-        else:
-            total_size += cast(FileResult, d)["size"] or 0
+        total_size += _get_entry_size(d, is_dir=is_dir)
         count += 1
 
     if args.format == "json":
         print(json.dumps(json_results, ensure_ascii=False, indent=2))
 
-    if count == 0:
-        if not args.no_summary:
-            print(f"No matching {entity} found.")
-    elif not args.no_summary and args.format not in ("json", "jsonl", "path"):
-        if is_dir:
-            print(f"Search complete: {count:,} entries")
-        else:
-            print(f"Search complete: {count:,} entries / {_format_size(total_size)}")
+    _print_summary(count, total_size, args, is_dir=is_dir)
 
 
 _SEARCH_OPTION_ATTRS = (
@@ -718,9 +734,8 @@ class LocatePy:
         self._check_db()
         table = self._get_table()
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                f"PRAGMA case_sensitive_like = {'OFF' if self.args.ignore_case else 'ON'}"
-            )
+            pragma_value = "OFF" if self.args.ignore_case else "ON"
+            conn.execute(f"PRAGMA case_sensitive_like = {pragma_value}")
             yield from self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], table)
 
     def search_regex(self, pattern: str) -> Iterator[FileResult | DirResult]:

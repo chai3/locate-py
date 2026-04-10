@@ -3,7 +3,7 @@
 import argparse
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -28,9 +28,9 @@ mcp = FastMCP(
 )
 
 
-def _make_locate_args(
+def _make_locate_args(  # noqa: PLR0913
     *,
-    type: str = "file",
+    entry_type: str = "file",
     sort: str | None = None,
     sort_order: str | None = None,
     limit: int | None = None,
@@ -48,7 +48,7 @@ def _make_locate_args(
     ignore_case: bool = False,
 ) -> LocateArgs:
     args = LocateArgs()
-    args.type = type
+    args.type = entry_type
     args.sort = sort
     args.sort_order = sort_order
     args.limit = limit
@@ -70,19 +70,19 @@ def _make_locate_args(
     return args
 
 
-def _make_app(config_path: str | None, **kwargs) -> LocatePy:
+def _make_app(config_path: str | None, **kwargs: Any) -> LocatePy:  # noqa: ANN401
     path = Path(config_path) if config_path else Path(_state["config_path"])
     config = load_config(path)
     return LocatePy(config, _make_locate_args(**kwargs))
 
 
 @mcp.tool()
-def search(
+def search(  # noqa: PLR0913
     pattern: Annotated[str, "Substring to search for in file/directory paths"],
-    type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",
+    type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",  # noqa: A002
     sort: Annotated[
         str | None,
-        "Sort key (path, size, modified_time, created_time, accessed_time, local_size, ...)",
+        "Sort key (path, size, modified_time, created_time, accessed_time, ...)",
     ] = None,
     sort_order: Annotated[str | None, "Sort order: 'asc' or 'desc'"] = None,
     limit: Annotated[int | None, "Maximum number of results"] = None,
@@ -103,13 +103,13 @@ def search(
     accessed_time_after: Annotated[str | None, "Accessed after"] = None,
     accessed_time_before: Annotated[str | None, "Accessed before"] = None,
     target_dir: Annotated[str | None, "Restrict search to this directory"] = None,
-    ignore_case: Annotated[bool, "Case-insensitive search"] = False,
+    ignore_case: Annotated[bool, "Case-insensitive search"] = False,  # noqa: FBT002
     config_path: Annotated[str | None, "Path to locate-py.json config file"] = None,
 ) -> list[FileResult | DirResult]:
     """Search for files or directories matching a substring pattern."""
     app = _make_app(
         config_path,
-        type=type,
+        entry_type=type,
         sort=sort,
         sort_order=sort_order,
         limit=limit,
@@ -133,22 +133,22 @@ def search(
 
 
 @mcp.tool()
-def search_regex(
+def search_regex(  # noqa: PLR0913
     pattern: Annotated[str, "Regular expression to search for in file/directory paths"],
-    type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",
+    type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",  # noqa: A002
     sort: Annotated[str | None, "Sort key"] = None,
     sort_order: Annotated[str | None, "Sort order: 'asc' or 'desc'"] = None,
     limit: Annotated[int | None, "Maximum number of results"] = None,
     min_size: Annotated[str | None, "Minimum file size"] = None,
     max_size: Annotated[str | None, "Maximum file size"] = None,
     target_dir: Annotated[str | None, "Restrict search to this directory"] = None,
-    ignore_case: Annotated[bool, "Case-insensitive search"] = False,
+    ignore_case: Annotated[bool, "Case-insensitive search"] = False,  # noqa: FBT002
     config_path: Annotated[str | None, "Path to locate-py.json config file"] = None,
 ) -> list[FileResult | DirResult]:
     """Search for files or directories matching a regular expression."""
     app = _make_app(
         config_path,
-        type=type,
+        entry_type=type,
         sort=sort,
         sort_order=sort_order,
         limit=limit,

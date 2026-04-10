@@ -151,7 +151,7 @@ def test_format_path(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """--format path でパスのみ出力される（ヘッダー・サマリーなし）。"""
+    """--format path でパスのみ出力される(ヘッダー・サマリーなし)。"""
     _tmp, config_path = env
     capsys.readouterr()
 
@@ -164,7 +164,6 @@ def test_format_path(
 
     out = capsys.readouterr().out
     lines = out.strip().splitlines()
-    # パスのみ1行で出力される（ヘッダー・サマリーなし）
     assert len(lines) == 1
     assert lines[0].endswith("report.txt")
 
@@ -194,7 +193,7 @@ def test_min_size(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """--min-size 500K でサイズフィルタが動作する（big_file.bin のみヒット）。"""
+    """--min-size 500K でサイズフィルタが動作する(big_file.bin のみヒット)。"""
     _tmp, config_path = env
     capsys.readouterr()
 
