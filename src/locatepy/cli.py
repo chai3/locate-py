@@ -265,7 +265,9 @@ def _scan_files_and_collect_dirs(
                             atime_ns=st.st_atime_ns,
                             mtime_ns=st.st_mtime_ns,
                             file_attributes=file_attributes,
-                            local_size=_calc_local_size(path_norm, size, file_attributes),
+                            local_size=_calc_local_size(
+                                path_norm, size, file_attributes
+                            ),
                         )
         except PermissionError:
             pass
@@ -500,7 +502,7 @@ def _print_results(
     if count == 0:
         if not args.no_summary:
             print(f"No matching {entity} found.")
-    elif not args.no_summary and args.format not in ("json", "jsonl"):
+    elif not args.no_summary and args.format not in ("json", "jsonl", "path"):
         if is_dir:
             print(f"Search complete: {count:,} entries")
         else:

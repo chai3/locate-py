@@ -4,16 +4,10 @@ version = "0.1.0"
 description = "Locate files and directories instantly with a sqlite-based index"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "mcp>=1.26.0",
-]
+dependencies = ["mcp>=1.26.0"]
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "ruff>=0.15.8",
-    "ty>=0.0.26",
-]
+dev = ["pytest>=9.0.2", "ruff>=0.15.8", "ty>=0.0.26"]
 
 [project.scripts]
 locatepy = "locatepy.cli:main"
@@ -42,3 +36,6 @@ ignore = [
     "EM101",
     "EM102",
 ]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = ["S101"]

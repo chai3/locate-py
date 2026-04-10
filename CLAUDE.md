@@ -9,7 +9,8 @@ LocatePyはSQLiteベースのローカルファイル検索ツール
 uv run locatepy [args]
 uv run locatepy-mcp [args]
 
-uv run test # pytest
+# 実装完了後に以下を実行
+uv run pytest
 uv run ty check
 uv run ruff format
 uv run ruff check

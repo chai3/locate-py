@@ -1,4 +1,5 @@
 """MCP server for locatepy."""
+
 import argparse
 import re
 from pathlib import Path
@@ -79,14 +80,23 @@ def _make_app(config_path: str | None, **kwargs) -> LocatePy:
 def search(
     pattern: Annotated[str, "Substring to search for in file/directory paths"],
     type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",
-    sort: Annotated[str | None, "Sort key (path, size, modified_time, created_time, accessed_time, local_size, ...)"] = None,
+    sort: Annotated[
+        str | None,
+        "Sort key (path, size, modified_time, created_time, accessed_time, local_size, ...)",
+    ] = None,
     sort_order: Annotated[str | None, "Sort order: 'asc' or 'desc'"] = None,
     limit: Annotated[int | None, "Maximum number of results"] = None,
     min_size: Annotated[str | None, "Minimum file size (e.g. '1M', '500K')"] = None,
     max_size: Annotated[str | None, "Maximum file size (e.g. '100M', '1G')"] = None,
-    min_total_size: Annotated[str | None, "Minimum total dir size (dir type only)"] = None,
-    max_total_size: Annotated[str | None, "Maximum total dir size (dir type only)"] = None,
-    modified_time_after: Annotated[str | None, "Modified after (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)"] = None,
+    min_total_size: Annotated[
+        str | None, "Minimum total dir size (dir type only)"
+    ] = None,
+    max_total_size: Annotated[
+        str | None, "Maximum total dir size (dir type only)"
+    ] = None,
+    modified_time_after: Annotated[
+        str | None, "Modified after (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)"
+    ] = None,
     modified_time_before: Annotated[str | None, "Modified before"] = None,
     created_time_after: Annotated[str | None, "Created after"] = None,
     created_time_before: Annotated[str | None, "Created before"] = None,
