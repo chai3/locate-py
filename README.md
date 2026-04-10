@@ -2,68 +2,84 @@
 
 A SQLite-based local file search tool. Indexes files and directories for fast searching by path, size, and timestamp.
 
-## Setup
+## Getting Started
+### Installation
 
-```bash
-# Generate config file (first time)
-python main.py --create-config
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
-# Edit locate-py.json to configure target_paths etc.
+Invoke directly without installing
+```shell
+uvx --from git+https://github.com/chai3/locate-py locatepy [args]
 ```
+
+Or globally install
+
+```shell
+uv tool install --from git+https://github.com/chai3/locate-py locatepy
+```
+
+### Setup(Indexing)
+
+Both files and directories are indexed.
+
+1. Simple indexing method
+```shell
+cd <target-directory>
+locatepy -u # Index current directory
+```
+
+1. Advanced index method
+```shell
+locatepy --create-config
+# Configure the targets and other settings in the generated config.json.
+locatepy -u # Index based on config.json
+```
+
 
 ### locate-py.json example
 
 ```json
 {
   "database_path": "locate-py.db",
-  "target_paths": ["C:\\Users\\user\\Documents"],
-  "ignore_paths": ["C:\\Users\\user\\AppData"],
-  "ignore_names": [".git"]
+  "target_paths": ["C:\\", "D:\\"], // ex: "C:\\" "\\\\192.168.1.2\\share" "/" "/home"
+  "ignore_paths": ["C:\\$Recycle.Bin"],
+  "ignore_names": [""] // .git .venv node_modules
 }
 ```
 
-## Update Database
-
-```bash
-python main.py -u
-```
-
-Both files and directories are indexed.
-
----
 
 ## File Search (`--type file`, default)
 
 ### Pattern search (partial match)
 
-```bash
-python main.py report
-python main.py -i report          # case-insensitive
-python main.py -r "\.log$"        # regex
+```shell
+locatepy report
+locatepy -i report          # case-insensitive
+locatepy -r "\.log$"        # regex
 ```
 
 ### Size filter
 
-```bash
-python main.py --min-size 100M               # 100 MB or larger
-python main.py --min-size 1G --sort size     # 1 GB or larger, sorted by size
+```shell
+locatepy --min-size 100M               # 100 MB or larger
+locatepy --min-size 1G --sort size     # 1 GB or larger, sorted by size
 ```
 
 ### Time filter
 
-```bash
-python main.py --mtime-after 2024-01-01
-python main.py --mtime-after "2024-06-01 00:00" --mtime-before "2024-06-30 23:59"
+```shell
+locatepy --mtime-after 2024-01-01
+locatepy --mtime-after "2024-06-01 00:00" --mtime-before "2024-06-30 23:59"
 ```
 
 ### Output options
 
-```bash
-python main.py report --format path          # path only
-python main.py report --format csv           # CSV output
-python main.py report -l 20                  # up to 20 results
-python main.py report --no-header            # no header row
-python main.py report --sort size            # sort by size descending
+```shell
+locatepy report --format path          # path only
+locatepy report --format csv           # CSV output
+locatepy report -l 20                  # up to 20 results
+locatepy report --no-header            # no header row
+locatepy report --sort size            # sort by size descending
 ```
 
 **Sort keys (`--type file`):** `path`, `size`, `lsize`, `mtime`, `ctime`, `atime`
@@ -74,33 +90,33 @@ python main.py report --sort size            # sort by size descending
 
 ### Find large folders (recursive total)
 
-```bash
-python main.py --type dir --min-total-size 1G --sort total_size
+```shell
+locatepy --type dir --min-total-size 1G --sort total_size
 ```
 
 ### Find folders with many files (recursive total)
 
-```bash
-python main.py --type dir --sort total_files
+```shell
+locatepy --type dir --sort total_files
 ```
 
 ### Find folders with many direct files
 
-```bash
-python main.py --type dir --sort files
+```shell
+locatepy --type dir --sort files
 ```
 
 ### Filter by direct size
 
-```bash
-python main.py --type dir --min-size 500M --sort size
+```shell
+locatepy --type dir --min-size 500M --sort size
 ```
 
 ### Pattern filter + directory search
 
-```bash
-python main.py --type dir Downloads
-python main.py --type dir -r "node_modules$" --sort total_size
+```shell
+locatepy --type dir Downloads
+locatepy --type dir -r "node_modules$" --sort total_size
 ```
 
 **Sort keys (`--type dir`):** `path`, `size` (direct), `lsize` (direct), `files` (direct), `total_size`, `total_lsize`, `total_files`, `mtime`, `ctime`, `atime`
