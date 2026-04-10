@@ -37,12 +37,12 @@ def _make_locate_args(
     max_size: str | None = None,
     min_total_size: str | None = None,
     max_total_size: str | None = None,
-    mtime_after: str | None = None,
-    mtime_before: str | None = None,
-    ctime_after: str | None = None,
-    ctime_before: str | None = None,
-    atime_after: str | None = None,
-    atime_before: str | None = None,
+    modified_time_after: str | None = None,
+    modified_time_before: str | None = None,
+    created_time_after: str | None = None,
+    created_time_before: str | None = None,
+    accessed_time_after: str | None = None,
+    accessed_time_before: str | None = None,
     target_dir: str | None = None,
     ignore_case: bool = False,
 ) -> LocateArgs:
@@ -55,12 +55,12 @@ def _make_locate_args(
     args.max_size = max_size
     args.min_total_size = min_total_size
     args.max_total_size = max_total_size
-    args.mtime_after = mtime_after
-    args.mtime_before = mtime_before
-    args.ctime_after = ctime_after
-    args.ctime_before = ctime_before
-    args.atime_after = atime_after
-    args.atime_before = atime_before
+    args.modified_time_after = modified_time_after
+    args.modified_time_before = modified_time_before
+    args.created_time_after = created_time_after
+    args.created_time_before = created_time_before
+    args.accessed_time_after = accessed_time_after
+    args.accessed_time_before = accessed_time_before
     args.target_dir = target_dir
     args.ignore_case = ignore_case
     args.format = "json"
@@ -79,19 +79,19 @@ def _make_app(config_path: str | None, **kwargs) -> LocatePy:
 def search(
     pattern: Annotated[str, "Substring to search for in file/directory paths"],
     type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",
-    sort: Annotated[str | None, "Sort key (path, size, mtime, ctime, atime, lsize, ...)"] = None,
+    sort: Annotated[str | None, "Sort key (path, size, modified_time, created_time, accessed_time, local_size, ...)"] = None,
     sort_order: Annotated[str | None, "Sort order: 'asc' or 'desc'"] = None,
     limit: Annotated[int | None, "Maximum number of results"] = None,
     min_size: Annotated[str | None, "Minimum file size (e.g. '1M', '500K')"] = None,
     max_size: Annotated[str | None, "Maximum file size (e.g. '100M', '1G')"] = None,
     min_total_size: Annotated[str | None, "Minimum total dir size (dir type only)"] = None,
     max_total_size: Annotated[str | None, "Maximum total dir size (dir type only)"] = None,
-    mtime_after: Annotated[str | None, "Modified after (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)"] = None,
-    mtime_before: Annotated[str | None, "Modified before"] = None,
-    ctime_after: Annotated[str | None, "Created after"] = None,
-    ctime_before: Annotated[str | None, "Created before"] = None,
-    atime_after: Annotated[str | None, "Accessed after"] = None,
-    atime_before: Annotated[str | None, "Accessed before"] = None,
+    modified_time_after: Annotated[str | None, "Modified after (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)"] = None,
+    modified_time_before: Annotated[str | None, "Modified before"] = None,
+    created_time_after: Annotated[str | None, "Created after"] = None,
+    created_time_before: Annotated[str | None, "Created before"] = None,
+    accessed_time_after: Annotated[str | None, "Accessed after"] = None,
+    accessed_time_before: Annotated[str | None, "Accessed before"] = None,
     target_dir: Annotated[str | None, "Restrict search to this directory"] = None,
     ignore_case: Annotated[bool, "Case-insensitive search"] = False,
     config_path: Annotated[str | None, "Path to locate-py.json config file"] = None,
@@ -107,12 +107,12 @@ def search(
         max_size=max_size,
         min_total_size=min_total_size,
         max_total_size=max_total_size,
-        mtime_after=mtime_after,
-        mtime_before=mtime_before,
-        ctime_after=ctime_after,
-        ctime_before=ctime_before,
-        atime_after=atime_after,
-        atime_before=atime_before,
+        modified_time_after=modified_time_after,
+        modified_time_before=modified_time_before,
+        created_time_after=created_time_after,
+        created_time_before=created_time_before,
+        accessed_time_after=accessed_time_after,
+        accessed_time_before=accessed_time_before,
         target_dir=target_dir,
         ignore_case=ignore_case,
     )

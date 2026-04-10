@@ -14,33 +14,33 @@ FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
 
 SORT_COLUMNS = {
     "path": "path",
-    "size": "st_size",
-    "lsize": "lsize",
-    "mtime": "st_mtime_ns",
-    "ctime": "st_birthtime_ns",
-    "atime": "st_atime_ns",
+    "size": "size",
+    "local_size": "local_size",
+    "modified_time": "mtime_ns",
+    "created_time": "birthtime_ns",
+    "accessed_time": "atime_ns",
 }
 
 DIR_SORT_COLUMNS = {
     "path": "path",
     "size": "size",
-    "lsize": "lsize",
-    "mtime": "st_mtime_ns",
-    "ctime": "st_birthtime_ns",
-    "atime": "st_atime_ns",
+    "local_size": "local_size",
+    "modified_time": "mtime_ns",
+    "created_time": "birthtime_ns",
+    "accessed_time": "atime_ns",
     "files": "files",
     "total_size": "total_size",
-    "total_lsize": "total_lsize",
+    "total_local_size": "total_local_size",
     "total_files": "total_files",
 }
 
 CSV_HEADER = [
     "path",
     "size",
-    "lsize",
-    "ctime",
-    "atime",
-    "mtime",
+    "local_size",
+    "created_time",
+    "accessed_time",
+    "modified_time",
     "attributes",
 ]
 
@@ -48,13 +48,13 @@ CSV_HEADER_DIR = [
     "path",
     "files",
     "size",
-    "lsize",
+    "local_size",
     "total_files",
     "total_size",
-    "total_lsize",
-    "ctime",
-    "atime",
-    "mtime",
+    "total_local_size",
+    "created_time",
+    "accessed_time",
+    "modified_time",
     "attributes",
 ]
 
@@ -62,10 +62,10 @@ CSV_HEADER_DIR = [
 class FileResult(TypedDict):
     path: str
     size: int | None
-    lsize: int
-    birthtime: str
-    atime: str
-    mtime: str
+    local_size: int
+    created_time: str
+    accessed_time: str
+    modified_time: str
     attributes: int | None
 
 
@@ -73,13 +73,13 @@ class DirResult(TypedDict):
     path: str
     files: int
     size: int
-    lsize: int
+    local_size: int
     total_files: int
     total_size: int
-    total_lsize: int
-    birthtime: str
-    atime: str
-    mtime: str
+    total_local_size: int
+    created_time: str
+    accessed_time: str
+    modified_time: str
     attributes: int | None
 
 
@@ -92,38 +92,38 @@ class Config(TypedDict, total=False):
 
 class FileEntry(NamedTuple):
     path: str
-    st_size: int | None
-    st_birthtime_ns: int | None
-    st_atime_ns: int | None
-    st_mtime_ns: int | None
-    st_file_attributes: int | None
-    lsize: int
+    size: int | None
+    birthtime_ns: int | None
+    atime_ns: int | None
+    mtime_ns: int | None
+    file_attributes: int | None
+    local_size: int
 
 
 class DbFileRow(NamedTuple):
     id: int
     path: str
-    st_size: int | None
-    st_birthtime_ns: int | None
-    st_atime_ns: int | None
-    st_mtime_ns: int | None
-    st_file_attributes: int | None
-    lsize: int
+    size: int | None
+    birthtime_ns: int | None
+    atime_ns: int | None
+    mtime_ns: int | None
+    file_attributes: int | None
+    local_size: int
 
 
 class DbDirRow(NamedTuple):
     id: int
     path: str
-    st_birthtime_ns: int | None
-    st_atime_ns: int | None
-    st_mtime_ns: int | None
-    st_file_attributes: int | None
+    birthtime_ns: int | None
+    atime_ns: int | None
+    mtime_ns: int | None
+    file_attributes: int | None
     files: int
     size: int
-    lsize: int
+    local_size: int
     total_files: int
     total_size: int
-    total_lsize: int
+    total_local_size: int
 
 
 class LocateArgs(argparse.Namespace):
@@ -138,12 +138,12 @@ class LocateArgs(argparse.Namespace):
     min_total_size: str | None
     max_total_size: str | None
     type: str
-    mtime_after: str | None
-    mtime_before: str | None
-    ctime_after: str | None
-    ctime_before: str | None
-    atime_after: str | None
-    atime_before: str | None
+    modified_time_after: str | None
+    modified_time_before: str | None
+    created_time_after: str | None
+    created_time_before: str | None
+    accessed_time_after: str | None
+    accessed_time_before: str | None
     target_dir: str | None
     limit: int | None
     ignore_case: bool
@@ -157,36 +157,36 @@ class LocateArgs(argparse.Namespace):
 class _DirAccum:
     __slots__ = (
         "files",
-        "lsize",
+        "local_size",
         "size",
-        "st_atime_ns",
-        "st_birthtime_ns",
-        "st_file_attributes",
-        "st_mtime_ns",
+        "atime_ns",
+        "birthtime_ns",
+        "file_attributes",
+        "mtime_ns",
         "total_files",
-        "total_lsize",
+        "total_local_size",
         "total_size",
     )
 
     def __init__(self) -> None:
-        self.st_birthtime_ns: int | None = None
-        self.st_atime_ns: int | None = None
-        self.st_mtime_ns: int | None = None
-        self.st_file_attributes: int | None = None
+        self.birthtime_ns: int | None = None
+        self.atime_ns: int | None = None
+        self.mtime_ns: int | None = None
+        self.file_attributes: int | None = None
         self.files: int = 0
         self.size: int = 0
-        self.lsize: int = 0
+        self.local_size: int = 0
         self.total_files: int = 0
         self.total_size: int = 0
-        self.total_lsize: int = 0
+        self.total_local_size: int = 0
 
 
-def _calc_lsize(_path: str, st_size: int | None, st_file_attributes: int | None) -> int:
-    if st_file_attributes is not None and (
-        st_file_attributes & FILE_ATTRIBUTE_RECALL_ON_OPEN
+def _calc_local_size(_path: str, size: int | None, file_attributes: int | None) -> int:
+    if file_attributes is not None and (
+        file_attributes & FILE_ATTRIBUTE_RECALL_ON_OPEN
     ):
         return 0
-    return st_size if st_size is not None else 0
+    return size if size is not None else 0
 
 
 def _default_config() -> Config:
@@ -241,12 +241,12 @@ def _scan_files_and_collect_dirs(
                             accum = _DirAccum()
                             try:
                                 st = entry.stat(follow_symlinks=False)
-                                accum.st_birthtime_ns = getattr(
+                                accum.birthtime_ns = getattr(
                                     st, "st_birthtime_ns", None
                                 )
-                                accum.st_atime_ns = st.st_atime_ns
-                                accum.st_mtime_ns = st.st_mtime_ns
-                                accum.st_file_attributes = getattr(
+                                accum.atime_ns = st.st_atime_ns
+                                accum.mtime_ns = st.st_mtime_ns
+                                accum.file_attributes = getattr(
                                     st, "st_file_attributes", None
                                 )
                             except OSError:
@@ -256,16 +256,16 @@ def _scan_files_and_collect_dirs(
                     elif entry.is_file(follow_symlinks=False):
                         st = entry.stat(follow_symlinks=False)
                         path_norm = os.path.normpath(entry.path)
-                        st_size = st.st_size
-                        st_file_attributes = getattr(st, "st_file_attributes", None)
+                        size = st.st_size
+                        file_attributes = getattr(st, "st_file_attributes", None)
                         yield FileEntry(
                             path=path_norm,
-                            st_size=st_size,
-                            st_birthtime_ns=getattr(st, "st_birthtime_ns", None),
-                            st_atime_ns=st.st_atime_ns,
-                            st_mtime_ns=st.st_mtime_ns,
-                            st_file_attributes=st_file_attributes,
-                            lsize=_calc_lsize(path_norm, st_size, st_file_attributes),
+                            size=size,
+                            birthtime_ns=getattr(st, "st_birthtime_ns", None),
+                            atime_ns=st.st_atime_ns,
+                            mtime_ns=st.st_mtime_ns,
+                            file_attributes=file_attributes,
+                            local_size=_calc_local_size(path_norm, size, file_attributes),
                         )
         except PermissionError:
             pass
@@ -278,7 +278,7 @@ def _propagate_totals(dir_accums: dict[str, "_DirAccum"]) -> None:
     for acc in dir_accums.values():
         acc.total_files = acc.files
         acc.total_size = acc.size
-        acc.total_lsize = acc.lsize
+        acc.total_local_size = acc.local_size
     for d in sorted(dir_accums, key=lambda p: p.count(os.sep), reverse=True):
         parent = os.path.dirname(d)
         if parent != d and parent in dir_accums:
@@ -286,7 +286,7 @@ def _propagate_totals(dir_accums: dict[str, "_DirAccum"]) -> None:
             c = dir_accums[d]
             p.total_files += c.total_files
             p.total_size += c.total_size
-            p.total_lsize += c.total_lsize
+            p.total_local_size += c.total_local_size
 
 
 def _parse_size(s: str) -> int:
@@ -352,15 +352,14 @@ def _apply_filters_and_sort(
     *,
     is_dir: bool = False,
 ) -> str:
-    size_col = "size" if is_dir else "st_size"
     if getattr(args, "target_dir", None):
         norm = os.path.normpath(args.target_dir)
         where.append("path LIKE ?")
         params.append(norm + os.sep + "%")
     if args.min_size is not None:
-        _add_size_filter(where, params, f"{size_col} >=", args.min_size, "--min-size")
+        _add_size_filter(where, params, "size >=", args.min_size, "--min-size")
     if args.max_size is not None:
-        _add_size_filter(where, params, f"{size_col} <=", args.max_size, "--max-size")
+        _add_size_filter(where, params, "size <=", args.max_size, "--max-size")
     if is_dir:
         min_total = getattr(args, "min_total_size", None)
         max_total = getattr(args, "max_total_size", None)
@@ -373,9 +372,9 @@ def _apply_filters_and_sort(
                 where, params, "total_size <=", max_total, "--max-total-size"
             )
     for col, after_attr, before_attr in [
-        ("st_mtime_ns", "mtime_after", "mtime_before"),
-        ("st_birthtime_ns", "ctime_after", "ctime_before"),
-        ("st_atime_ns", "atime_after", "atime_before"),
+        ("mtime_ns", "modified_time_after", "modified_time_before"),
+        ("birthtime_ns", "created_time_after", "created_time_before"),
+        ("atime_ns", "accessed_time_after", "accessed_time_before"),
     ]:
         after_val = getattr(args, after_attr)
         before_val = getattr(args, before_attr)
@@ -410,24 +409,24 @@ def _row_to_dict(row: tuple, *, is_dir: bool) -> FileResult | DirResult:
             "path": r.path,
             "files": r.files,
             "size": r.size,
-            "lsize": r.lsize,
+            "local_size": r.local_size,
             "total_files": r.total_files,
             "total_size": r.total_size,
-            "total_lsize": r.total_lsize,
-            "birthtime": _ns_to_str(r.st_birthtime_ns),
-            "atime": _ns_to_str(r.st_atime_ns),
-            "mtime": _ns_to_str(r.st_mtime_ns),
-            "attributes": r.st_file_attributes,
+            "total_local_size": r.total_local_size,
+            "created_time": _ns_to_str(r.birthtime_ns),
+            "accessed_time": _ns_to_str(r.atime_ns),
+            "modified_time": _ns_to_str(r.mtime_ns),
+            "attributes": r.file_attributes,
         }
     r = DbFileRow(*row)
     return {
         "path": r.path,
-        "size": r.st_size,
-        "lsize": r.lsize,
-        "birthtime": _ns_to_str(r.st_birthtime_ns),
-        "atime": _ns_to_str(r.st_atime_ns),
-        "mtime": _ns_to_str(r.st_mtime_ns),
-        "attributes": r.st_file_attributes,
+        "size": r.size,
+        "local_size": r.local_size,
+        "created_time": _ns_to_str(r.birthtime_ns),
+        "accessed_time": _ns_to_str(r.atime_ns),
+        "modified_time": _ns_to_str(r.mtime_ns),
+        "attributes": r.file_attributes,
     }
 
 
@@ -467,13 +466,13 @@ def _print_results(
                     path,
                     str(dr["files"]),
                     str(dr["size"]),
-                    str(dr["lsize"]),
+                    str(dr["local_size"]),
                     str(dr["total_files"]),
                     str(dr["total_size"]),
-                    str(dr["total_lsize"]),
-                    dr["birthtime"],
-                    dr["atime"],
-                    dr["mtime"],
+                    str(dr["total_local_size"]),
+                    dr["created_time"],
+                    dr["accessed_time"],
+                    dr["modified_time"],
                     str(dr["attributes"]) if dr["attributes"] is not None else "",
                 ]
             else:
@@ -481,10 +480,10 @@ def _print_results(
                 fields = [
                     path,
                     str(fr["size"]) if fr["size"] is not None else "",
-                    str(fr["lsize"]),
-                    fr["birthtime"],
-                    fr["atime"],
-                    fr["mtime"],
+                    str(fr["local_size"]),
+                    fr["created_time"],
+                    fr["accessed_time"],
+                    fr["modified_time"],
                     str(fr["attributes"]) if fr["attributes"] is not None else "",
                 ]
             print(delimiter.join(fields))
@@ -516,12 +515,12 @@ _SEARCH_OPTION_ATTRS = (
     "max_size",
     "min_total_size",
     "max_total_size",
-    "mtime_after",
-    "mtime_before",
-    "ctime_after",
-    "ctime_before",
-    "atime_after",
-    "atime_before",
+    "modified_time_after",
+    "modified_time_before",
+    "created_time_after",
+    "created_time_before",
+    "accessed_time_after",
+    "accessed_time_before",
     "ignore_case",
     "type",
     "target_dir",
@@ -583,28 +582,28 @@ class LocatePy:
             CREATE TABLE files (
                 id                  INTEGER PRIMARY KEY,
                 path                TEXT NOT NULL UNIQUE,
-                st_size             INTEGER,
-                st_birthtime_ns     INTEGER,
-                st_atime_ns         INTEGER,
-                st_mtime_ns         INTEGER,
-                st_file_attributes  INTEGER,
-                lsize               INTEGER NOT NULL DEFAULT 0
+                size                INTEGER,
+                birthtime_ns        INTEGER,
+                atime_ns            INTEGER,
+                mtime_ns            INTEGER,
+                file_attributes     INTEGER,
+                local_size          INTEGER NOT NULL DEFAULT 0
             )
         """)
         conn.execute("""
             CREATE TABLE dirs (
                 id                  INTEGER PRIMARY KEY,
                 path                TEXT NOT NULL UNIQUE,
-                st_birthtime_ns     INTEGER,
-                st_atime_ns         INTEGER,
-                st_mtime_ns         INTEGER,
-                st_file_attributes  INTEGER,
+                birthtime_ns        INTEGER,
+                atime_ns            INTEGER,
+                mtime_ns            INTEGER,
+                file_attributes     INTEGER,
                 files               INTEGER NOT NULL DEFAULT 0,
                 size                INTEGER NOT NULL DEFAULT 0,
-                lsize               INTEGER NOT NULL DEFAULT 0,
+                local_size          INTEGER NOT NULL DEFAULT 0,
                 total_files         INTEGER NOT NULL DEFAULT 0,
                 total_size          INTEGER NOT NULL DEFAULT 0,
-                total_lsize         INTEGER NOT NULL DEFAULT 0
+                total_local_size    INTEGER NOT NULL DEFAULT 0
             )
         """)
         conn.commit()
@@ -614,23 +613,23 @@ class LocatePy:
     ) -> int:
         dir_insert_sql = (
             "INSERT OR REPLACE INTO dirs "
-            "(path, st_birthtime_ns, st_atime_ns, st_mtime_ns, st_file_attributes, "
-            " files, size, lsize, total_files, total_size, total_lsize) "
+            "(path, birthtime_ns, atime_ns, mtime_ns, file_attributes, "
+            " files, size, local_size, total_files, total_size, total_local_size) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         dir_batch = [
             (
                 path,
-                acc.st_birthtime_ns,
-                acc.st_atime_ns,
-                acc.st_mtime_ns,
-                acc.st_file_attributes,
+                acc.birthtime_ns,
+                acc.atime_ns,
+                acc.mtime_ns,
+                acc.file_attributes,
                 acc.files,
                 acc.size,
-                acc.lsize,
+                acc.local_size,
                 acc.total_files,
                 acc.total_size,
-                acc.total_lsize,
+                acc.total_local_size,
             )
             for path, acc in dir_accums.items()
         ]
@@ -662,10 +661,10 @@ class LocatePy:
             accum = _DirAccum()
             try:
                 st = os.stat(norm_base)
-                accum.st_birthtime_ns = getattr(st, "st_birthtime_ns", None)
-                accum.st_atime_ns = st.st_atime_ns
-                accum.st_mtime_ns = st.st_mtime_ns
-                accum.st_file_attributes = getattr(st, "st_file_attributes", None)
+                accum.birthtime_ns = getattr(st, "st_birthtime_ns", None)
+                accum.atime_ns = st.st_atime_ns
+                accum.mtime_ns = st.st_mtime_ns
+                accum.file_attributes = getattr(st, "st_file_attributes", None)
             except OSError:
                 pass
             dir_accums[norm_base] = accum
@@ -677,8 +676,8 @@ class LocatePy:
             batch: list[FileEntry] = []
             insert_sql = (
                 "INSERT OR REPLACE INTO files "
-                "(path, st_size, st_birthtime_ns, st_atime_ns, "
-                "st_mtime_ns, st_file_attributes, lsize) "
+                "(path, size, birthtime_ns, atime_ns, "
+                "mtime_ns, file_attributes, local_size) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
             for base in self.config.get("target_paths", []):
@@ -689,8 +688,8 @@ class LocatePy:
                     if parent in dir_accums:
                         acc = dir_accums[parent]
                         acc.files += 1
-                        acc.size += fe.st_size or 0
-                        acc.lsize += fe.lsize
+                        acc.size += fe.size or 0
+                        acc.local_size += fe.local_size
                     batch.append(fe)
                     if len(batch) >= BATCH_SIZE:
                         total += len(batch)
@@ -811,38 +810,38 @@ def main() -> None:
         help="Type to search: file (default), dir",
     )
     parser.add_argument(
-        "--mtime-after",
-        dest="mtime_after",
+        "--modified-time-after",
+        dest="modified_time_after",
         metavar="DATE",
         help="Modified time lower bound",
     )
     parser.add_argument(
-        "--mtime-before",
-        dest="mtime_before",
+        "--modified-time-before",
+        dest="modified_time_before",
         metavar="DATE",
         help="Modified time upper bound",
     )
     parser.add_argument(
-        "--ctime-after",
-        dest="ctime_after",
+        "--created-time-after",
+        dest="created_time_after",
         metavar="DATE",
         help="Creation time lower bound",
     )
     parser.add_argument(
-        "--ctime-before",
-        dest="ctime_before",
+        "--created-time-before",
+        dest="created_time_before",
         metavar="DATE",
         help="Creation time upper bound",
     )
     parser.add_argument(
-        "--atime-after",
-        dest="atime_after",
+        "--accessed-time-after",
+        dest="accessed_time_after",
         metavar="DATE",
         help="Access time lower bound",
     )
     parser.add_argument(
-        "--atime-before",
-        dest="atime_before",
+        "--accessed-time-before",
+        dest="accessed_time_before",
         metavar="DATE",
         help="Access time upper bound",
     )
