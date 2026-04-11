@@ -21,9 +21,8 @@ mcp = FastMCP(
     name="locatepy",
     instructions=(
         "Search files and directories indexed by locatepy. "
-        "Use 'search' for pattern (substring) searches, "
-        "'search_regex' for regular expression searches, "
-        "and 'update_index' to rebuild the index."
+        "Use 'search' for pattern searches (substring by default, "
+        "regex when regex=True)."
     ),
 )
 
@@ -78,7 +77,8 @@ def _make_app(config_path: str | None, **kwargs: Any) -> LocatePy:  # noqa: ANN4
 
 @mcp.tool()
 def search(  # noqa: PLR0913
-    pattern: Annotated[str, "Substring to search for in file/directory paths"],
+    pattern: Annotated[str, "Pattern to search for in file/directory paths"],
+    regex: Annotated[bool, "Treat pattern as a regular expression"] = False,  # noqa: FBT002
     type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",  # noqa: A002
     sort: Annotated[
         str | None,
@@ -106,7 +106,7 @@ def search(  # noqa: PLR0913
     ignore_case: Annotated[bool, "Case-insensitive search"] = False,  # noqa: FBT002
     config_path: Annotated[str | None, "Path to locate-py.json config file"] = None,
 ) -> list[FileResult | DirResult]:
-    """Search for files or directories matching a substring pattern."""
+    """Search for files or directories matching a pattern (substring or regex)."""
     app = _make_app(
         config_path,
         entry_type=type,
@@ -127,51 +127,13 @@ def search(  # noqa: PLR0913
         ignore_case=ignore_case,
     )
     try:
+        if regex:
+            return list(app.search_regex(pattern))
         return list(app.search_pattern(pattern))
-    except SystemExit as e:
-        raise ValueError(str(e)) from e
-
-
-@mcp.tool()
-def search_regex(  # noqa: PLR0913
-    pattern: Annotated[str, "Regular expression to search for in file/directory paths"],
-    type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",  # noqa: A002
-    sort: Annotated[str | None, "Sort key"] = None,
-    sort_order: Annotated[str | None, "Sort order: 'asc' or 'desc'"] = None,
-    limit: Annotated[int | None, "Maximum number of results"] = None,
-    min_size: Annotated[str | None, "Minimum file size"] = None,
-    max_size: Annotated[str | None, "Maximum file size"] = None,
-    target_dir: Annotated[str | None, "Restrict search to this directory"] = None,
-    ignore_case: Annotated[bool, "Case-insensitive search"] = False,  # noqa: FBT002
-    config_path: Annotated[str | None, "Path to locate-py.json config file"] = None,
-) -> list[FileResult | DirResult]:
-    """Search for files or directories matching a regular expression."""
-    app = _make_app(
-        config_path,
-        entry_type=type,
-        sort=sort,
-        sort_order=sort_order,
-        limit=limit,
-        min_size=min_size,
-        max_size=max_size,
-        target_dir=target_dir,
-        ignore_case=ignore_case,
-    )
-    try:
-        return list(app.search_regex(pattern))
     except re.error as e:
         raise ValueError(f"Invalid regular expression: {e}") from e
     except SystemExit as e:
         raise ValueError(str(e)) from e
-
-
-@mcp.tool()
-def update_index(
-    config_path: Annotated[str | None, "Path to locate-py.json config file"] = None,
-) -> str:
-    """Rebuild the file system index. Returns a status message."""
-    app = _make_app(config_path)
-    return "\n".join(app.update_db())
 
 
 def main(argv: list[str] | None = None) -> None:
