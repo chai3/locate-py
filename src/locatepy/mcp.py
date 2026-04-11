@@ -66,8 +66,6 @@ def _make_locate_args(  # noqa: PLR0913
     args.target_dir = target_dir
     args.ignore_case = ignore_case
     args.format = "json"
-    args.no_header = True
-    args.no_summary = True
     return args
 
 

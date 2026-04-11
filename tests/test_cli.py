@@ -221,7 +221,7 @@ def test_output_fields_default_file(
 
     out = capsys.readouterr().out
     header = out.splitlines()[0]
-    assert header == "path\tsize\tmodified_time"
+    assert header == "path,size,modified_time"
 
 
 def test_output_fields_default_dir(
@@ -240,7 +240,7 @@ def test_output_fields_default_dir(
 
     out = capsys.readouterr().out
     header = out.splitlines()[0]
-    assert header == "path\ttotal_size\ttotal_files\tmodified_time"
+    assert header == "path,total_size,total_files,modified_time"
 
 
 def test_output_fields_tsv(
@@ -261,7 +261,7 @@ def test_output_fields_tsv(
 
     out = capsys.readouterr().out
     header = out.splitlines()[0]
-    assert header == "path\tsize"
+    assert header == "path,size"
     assert "modified_time" not in header
 
 
@@ -323,7 +323,7 @@ def test_output_fields_dir(
 
     out = capsys.readouterr().out
     header = out.splitlines()[0]
-    assert header == "path\ttotal_size"
+    assert header == "path,total_size"
     assert "subdir" in out
 
 
@@ -432,7 +432,7 @@ def test_name_in_sort(
     out = capsys.readouterr().out
     lines = [ln for ln in out.splitlines() if ln and not ln.startswith("Search")]
     # ヘッダー行を除いたパス列からファイル名を取り出し、ソート済みか確認
-    names = [ln.split("\t")[0].split("\\")[-1].split("/")[-1] for ln in lines[1:]]
+    names = [ln.split(",")[0].split("\\")[-1].split("/")[-1] for ln in lines[1:]]
     assert names == sorted(names)
 
 
@@ -462,9 +462,9 @@ def test_name_in_output_fields(
 
     out = capsys.readouterr().out
     lines = out.splitlines()
-    assert lines[0] == "name\tpath"
+    assert lines[0] == "name,path"
     # name 列が basename と一致する
     data_line = lines[1]
-    name_val, path_val = data_line.split("\t")
+    name_val, path_val = data_line.split(",", 1)
     assert name_val == "report.txt"
     assert "report.txt" in path_val

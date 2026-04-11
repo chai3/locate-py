@@ -163,8 +163,6 @@ class LocateArgs(argparse.Namespace):
     limit: int | None
     ignore_case: bool
     format: str
-    no_header: bool
-    no_summary: bool
     create_config: bool
     mcp: bool
     output_fields: list[str] | None
@@ -521,15 +519,15 @@ def _get_entry_size(d: FileResult | DirResult, *, is_dir: bool) -> int:
 def _print_summary(
     count: int, total_size: int, args: LocateArgs, *, is_dir: bool
 ) -> None:
+    if args.format != "human":
+        return
     entity = "directory" if is_dir else "file"
     if count == 0:
-        if not args.no_summary:
-            print(f"No matching {entity} found.")
-    elif not args.no_summary and args.format not in ("json", "jsonl", "path"):
-        if is_dir:
-            print(f"Search complete: {count:,} entries")
-        else:
-            print(f"Search complete: {count:,} entries / {_format_size(total_size)}")
+        print(f"No matching {entity} found.")
+    elif is_dir:
+        print(f"Search complete: {count:,} entries")
+    else:
+        print(f"Search complete: {count:,} entries / {_format_size(total_size)}")
 
 
 def _print_results(
@@ -553,7 +551,7 @@ def _print_results(
 
     for d in results:
         if not header_written:
-            if not args.no_header and args.format not in ("path", "json", "jsonl"):
+            if args.format == "human":
                 print(delimiter.join(output_fields))
             header_written = True
 
@@ -967,22 +965,10 @@ def main() -> None:
     parser.add_argument(
         "-f",
         "--format",
-        choices=["tsv", "csv", "path", "json", "jsonl"],
-        default="tsv",
+        choices=["human", "tsv", "csv", "path", "json", "jsonl"],
+        default="human",
         dest="format",
-        help="Output format: tsv (default), csv, path, json, jsonl",
-    )
-    parser.add_argument(
-        "--no-header",
-        action="store_true",
-        dest="no_header",
-        help="Suppress header row",
-    )
-    parser.add_argument(
-        "--no-summary",
-        action="store_true",
-        dest="no_summary",
-        help="Suppress summary line",
+        help="Output format: human (default), tsv, csv, path, json, jsonl",
     )
     parser.add_argument(
         "--output-fields",
