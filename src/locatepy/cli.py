@@ -14,6 +14,7 @@ FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
 
 SORT_COLUMNS = {
     "path": "path",
+    "name": "name",
     "size": "size",
     "local_size": "local_size",
     "modified_time": "mtime_ns",
@@ -23,6 +24,7 @@ SORT_COLUMNS = {
 
 DIR_SORT_COLUMNS = {
     "path": "path",
+    "name": "name",
     "size": "size",
     "local_size": "local_size",
     "modified_time": "mtime_ns",
@@ -36,6 +38,7 @@ DIR_SORT_COLUMNS = {
 
 CSV_HEADER = [
     "path",
+    "name",
     "size",
     "local_size",
     "created_time",
@@ -46,6 +49,7 @@ CSV_HEADER = [
 
 CSV_HEADER_DIR = [
     "path",
+    "name",
     "files",
     "size",
     "local_size",
@@ -66,6 +70,7 @@ DEFAULT_DIR_OUTPUT_FIELDS = ["path", "total_size", "total_files", "modified_time
 
 class FileResult(TypedDict):
     path: str
+    name: str
     size: int | None
     local_size: int
     created_time: str
@@ -76,6 +81,7 @@ class FileResult(TypedDict):
 
 class DirResult(TypedDict):
     path: str
+    name: str
     files: int
     size: int
     local_size: int
@@ -97,6 +103,7 @@ class Config(TypedDict, total=False):
 
 class FileEntry(NamedTuple):
     path: str
+    name: str
     size: int | None
     birthtime_ns: int | None
     atime_ns: int | None
@@ -108,6 +115,7 @@ class FileEntry(NamedTuple):
 class DbFileRow(NamedTuple):
     id: int
     path: str
+    name: str
     size: int | None
     birthtime_ns: int | None
     atime_ns: int | None
@@ -119,6 +127,7 @@ class DbFileRow(NamedTuple):
 class DbDirRow(NamedTuple):
     id: int
     path: str
+    name: str
     birthtime_ns: int | None
     atime_ns: int | None
     mtime_ns: int | None
@@ -136,6 +145,7 @@ class LocateArgs(argparse.Namespace):
     update: bool
     regex: str | None
     pattern: str | None
+    name: str | None
     sort: str | None
     sort_order: str | None
     min_size: str | None
@@ -168,6 +178,7 @@ class _DirAccum:
         "files",
         "local_size",
         "mtime_ns",
+        "name",
         "size",
         "total_files",
         "total_local_size",
@@ -175,6 +186,7 @@ class _DirAccum:
     )
 
     def __init__(self) -> None:
+        self.name: str = ""
         self.birthtime_ns: int | None = None
         self.atime_ns: int | None = None
         self.mtime_ns: int | None = None
@@ -193,6 +205,22 @@ def _calc_local_size(_path: str, size: int | None, file_attributes: int | None) 
     ):
         return 0
     return size if size is not None else 0
+
+
+def _file_batch_rows(batch: list[FileEntry]) -> list[tuple]:
+    return [
+        (
+            e.path,
+            e.name,
+            e.size,
+            e.birthtime_ns,
+            e.atime_ns,
+            e.mtime_ns,
+            e.file_attributes,
+            e.local_size,
+        )
+        for e in batch
+    ]
 
 
 def _default_config() -> Config:
@@ -245,6 +273,7 @@ def _scan_files_and_collect_dirs(
                         norm = os.path.normpath(entry.path)
                         if norm not in ignore_paths and entry.name not in ignore_names:
                             accum = _DirAccum()
+                            accum.name = entry.name
                             try:
                                 st = entry.stat(follow_symlinks=False)
                                 accum.birthtime_ns = getattr(
@@ -266,6 +295,7 @@ def _scan_files_and_collect_dirs(
                         file_attributes = getattr(st, "st_file_attributes", None)
                         yield FileEntry(
                             path=path_norm,
+                            name=entry.name,
                             size=size,
                             birthtime_ns=getattr(st, "st_birthtime_ns", None),
                             atime_ns=st.st_atime_ns,
@@ -352,7 +382,7 @@ def _build_order_clause(
     return f" ORDER BY {sort_columns[sort_key]} {order}"
 
 
-def _apply_filters_and_sort(
+def _apply_filters_and_sort(  # noqa: C901
     where: list[str],
     params: list,
     args: LocateArgs,
@@ -392,6 +422,10 @@ def _apply_filters_and_sort(
         if before_val is not None:
             where.append(f"{col} <= ?")
             params.append(_parse_date_ns(before_val))
+    name_val = getattr(args, "name", None)
+    if name_val is not None:
+        where.append("name LIKE ?")
+        params.append(f"%{name_val}%")
     return _build_order_clause(args, sort_columns, is_dir=is_dir)
 
 
@@ -415,6 +449,7 @@ def _row_to_dict(row: tuple, *, is_dir: bool) -> FileResult | DirResult:
         r = DbDirRow(*row)
         return {
             "path": r.path,
+            "name": r.name,
             "files": r.files,
             "size": r.size,
             "local_size": r.local_size,
@@ -429,6 +464,7 @@ def _row_to_dict(row: tuple, *, is_dir: bool) -> FileResult | DirResult:
     r = DbFileRow(*row)
     return {
         "path": r.path,
+        "name": r.name,
         "size": r.size,
         "local_size": r.local_size,
         "created_time": _ns_to_str(r.birthtime_ns),
@@ -449,6 +485,7 @@ def _format_csv_fields(
         dr = cast("DirResult", d)
         field_map: dict[str, str] = {
             "path": path,
+            "name": dr["name"],
             "files": str(dr["files"]),
             "size": str(dr["size"]),
             "local_size": str(dr["local_size"]),
@@ -464,6 +501,7 @@ def _format_csv_fields(
         fr = cast("FileResult", d)
         field_map = {
             "path": path,
+            "name": fr["name"],
             "size": str(fr["size"]) if fr["size"] is not None else "",
             "local_size": str(fr["local_size"]),
             "created_time": fr["created_time"],
@@ -545,6 +583,7 @@ def _print_results(
 
 
 _SEARCH_OPTION_ATTRS = (
+    "name",
     "sort",
     "sort_order",
     "limit",
@@ -592,6 +631,8 @@ class LocatePy:
         params: list,
         table: Literal["files", "dirs"] = "files",
     ) -> Iterator[FileResult | DirResult]:
+        pragma_value = "OFF" if self.args.ignore_case else "ON"
+        conn.execute(f"PRAGMA case_sensitive_like = {pragma_value}")
         is_dir = table == "dirs"
         sort_columns = DIR_SORT_COLUMNS if is_dir else SORT_COLUMNS
         where = [sql]
@@ -619,6 +660,7 @@ class LocatePy:
             CREATE TABLE files (
                 id                  INTEGER PRIMARY KEY,
                 path                TEXT NOT NULL UNIQUE,
+                name                TEXT NOT NULL DEFAULT '',
                 size                INTEGER,
                 birthtime_ns        INTEGER,
                 atime_ns            INTEGER,
@@ -631,6 +673,7 @@ class LocatePy:
             CREATE TABLE dirs (
                 id                  INTEGER PRIMARY KEY,
                 path                TEXT NOT NULL UNIQUE,
+                name                TEXT NOT NULL DEFAULT '',
                 birthtime_ns        INTEGER,
                 atime_ns            INTEGER,
                 mtime_ns            INTEGER,
@@ -650,13 +693,14 @@ class LocatePy:
     ) -> int:
         dir_insert_sql = (
             "INSERT OR REPLACE INTO dirs "
-            "(path, birthtime_ns, atime_ns, mtime_ns, file_attributes, "
+            "(path, name, birthtime_ns, atime_ns, mtime_ns, file_attributes, "
             " files, size, local_size, total_files, total_size, total_local_size) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         dir_batch = [
             (
                 path,
+                acc.name,
                 acc.birthtime_ns,
                 acc.atime_ns,
                 acc.mtime_ns,
@@ -674,6 +718,7 @@ class LocatePy:
             conn.executemany(dir_insert_sql, dir_batch[i : i + BATCH_SIZE])
             conn.commit()
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_path ON dirs(path)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dirs_name ON dirs(name)")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_dirs_total_size ON dirs(total_size)"
         )
@@ -696,6 +741,7 @@ class LocatePy:
         for base in self.config.get("target_paths", []):
             norm_base = os.path.normpath(base)
             accum = _DirAccum()
+            accum.name = os.path.basename(norm_base)
             try:
                 st = os.stat(norm_base)
                 accum.birthtime_ns = getattr(st, "st_birthtime_ns", None)
@@ -713,9 +759,9 @@ class LocatePy:
             batch: list[FileEntry] = []
             insert_sql = (
                 "INSERT OR REPLACE INTO files "
-                "(path, size, birthtime_ns, atime_ns, "
+                "(path, name, size, birthtime_ns, atime_ns, "
                 "mtime_ns, file_attributes, local_size) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             for base in self.config.get("target_paths", []):
                 for fe in _scan_files_and_collect_dirs(
@@ -731,16 +777,17 @@ class LocatePy:
                     if len(batch) >= BATCH_SIZE:
                         total += len(batch)
                         yield f"  Processing entry {total:,}... ({fe.path})"
-                        conn.executemany(insert_sql, batch)
+                        conn.executemany(insert_sql, _file_batch_rows(batch))
                         conn.commit()
                         batch.clear()
 
             if batch:
-                conn.executemany(insert_sql, batch)
+                conn.executemany(insert_sql, _file_batch_rows(batch))
                 conn.commit()
                 total += len(batch)
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_path ON files(path)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON files(name)")
             conn.commit()
 
             _propagate_totals(dir_accums)
@@ -753,8 +800,6 @@ class LocatePy:
         self._check_db()
         table = self._get_table()
         with sqlite3.connect(self.db_path) as conn:
-            pragma_value = "OFF" if self.args.ignore_case else "ON"
-            conn.execute(f"PRAGMA case_sensitive_like = {pragma_value}")
             yield from self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], table)
 
     def search_regex(self, pattern: str) -> Iterator[FileResult | DirResult]:
@@ -810,6 +855,11 @@ def main() -> None:
         "-r", "--regex", metavar="PATTERN", help="Search with regex pattern"
     )
     parser.add_argument("pattern", nargs="?", help="Search by pattern (partial match)")
+    parser.add_argument(
+        "--name",
+        metavar="PATTERN",
+        help="Search by file/directory name only (basename, not parent dirs)",
+    )
 
     all_sort_keys = sorted(set(SORT_COLUMNS) | set(DIR_SORT_COLUMNS))
     parser.add_argument(

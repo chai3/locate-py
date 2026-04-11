@@ -30,6 +30,7 @@ mcp = FastMCP(
 def _make_locate_args(  # noqa: PLR0913
     *,
     entry_type: str = "file",
+    name: str | None = None,
     sort: str | None = None,
     sort_order: str | None = None,
     limit: int | None = None,
@@ -48,6 +49,7 @@ def _make_locate_args(  # noqa: PLR0913
 ) -> LocateArgs:
     args = LocateArgs()
     args.type = entry_type
+    args.name = name
     args.sort = sort
     args.sort_order = sort_order
     args.limit = limit
@@ -80,9 +82,12 @@ def search(  # noqa: PLR0913
     pattern: Annotated[str, "Pattern to search for in file/directory paths"],
     regex: Annotated[bool, "Treat pattern as a regular expression"] = False,  # noqa: FBT002
     type: Annotated[str, "Entry type: 'file' or 'dir'"] = "file",  # noqa: A002
+    name: Annotated[
+        str | None, "Search by file/directory name only (basename, not parent dirs)"
+    ] = None,
     sort: Annotated[
         str | None,
-        "Sort key (path, size, modified_time, created_time, accessed_time, ...)",
+        "Sort key (name, path, size, modified_time, created_time, accessed_time, ...)",
     ] = None,
     sort_order: Annotated[str | None, "Sort order: 'asc' or 'desc'"] = None,
     limit: Annotated[int | None, "Maximum number of results"] = None,
@@ -110,6 +115,7 @@ def search(  # noqa: PLR0913
     app = _make_app(
         config_path,
         entry_type=type,
+        name=name,
         sort=sort,
         sort_order=sort_order,
         limit=limit,

@@ -229,7 +229,7 @@ def test_output_fields_default_dir(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """--output-fields 未指定時(dir)のデフォルトヘッダーが path,total_size,modified_time。"""
+    """--output-fields 未指定時(dir)のデフォルトヘッダー確認。"""
     _tmp, config_path = env
     capsys.readouterr()
 
@@ -301,7 +301,7 @@ def test_output_fields_dir(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """--type dir --output-fields path,total_size でdir用フィールドが正しく出力される。"""
+    """--type dir --output-fields path,total_size でdir用フィールドが出力される。"""
     _tmp, config_path = env
     capsys.readouterr()
 
@@ -341,3 +341,130 @@ def test_output_fields_invalid(
     )
     with pytest.raises(SystemExit):
         main()
+
+
+def test_name_option_file(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--name はファイル名のみ検索し、親ディレクトリ名にはヒットしない。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    # "subdir" という名前のディレクトリ配下にファイルがある。
+    # --name subdir でファイル検索すると、ファイル名が "subdir" に一致するものはない。
+    monkeypatch.setattr(
+        sys, "argv", ["locatepy", "-c", str(config_path), "--name", "subdir"]
+    )
+    main()
+
+    out = capsys.readouterr().out
+    assert "No matching file found." in out
+
+
+def test_name_option_file_match(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--name はファイル名と一致するエントリを返す。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys, "argv", ["locatepy", "-c", str(config_path), "--name", "data"]
+    )
+    main()
+
+    out = capsys.readouterr().out
+    assert "data.csv" in out
+    # big_file.bin は "data" を含まないのでヒットしない
+    assert "big_file.bin" not in out
+
+
+def test_name_option_dir(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--type dir --name でディレクトリ名のみ検索する。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["locatepy", "-c", str(config_path), "--type", "dir", "--name", "subdir"],
+    )
+    main()
+
+    out = capsys.readouterr().out
+    assert "subdir" in out
+
+
+def test_name_in_sort(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--sort name で正常にソートされる。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "locatepy",
+            "-c",
+            str(config_path),
+            "--sort",
+            "name",
+            "--sort-order",
+            "asc",
+            "--name",
+            "",
+        ],
+    )
+    main()
+
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines() if ln and not ln.startswith("Search")]
+    # ヘッダー行を除いたパス列からファイル名を取り出し、ソート済みか確認
+    names = [ln.split("\t")[0].split("\\")[-1].split("/")[-1] for ln in lines[1:]]
+    assert names == sorted(names)
+
+
+def test_name_in_output_fields(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--output-fields name,path で name 列が出力される。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "locatepy",
+            "-c",
+            str(config_path),
+            "--output-fields",
+            "name,path",
+            "--name",
+            "report",
+        ],
+    )
+    main()
+
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert lines[0] == "name\tpath"
+    # name 列が basename と一致する
+    data_line = lines[1]
+    name_val, path_val = data_line.split("\t")
+    assert name_val == "report.txt"
+    assert "report.txt" in path_val

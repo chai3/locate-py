@@ -4,4 +4,5 @@ locate-py.db
 .ruff_cache
 .pytest_cache
 .mypy_cache
+.claude
 __pycache__
