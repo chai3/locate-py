@@ -205,3 +205,139 @@ def test_min_size(
     out = capsys.readouterr().out
     assert "big_file.bin" in out
     assert "report.txt" not in out
+
+
+def test_output_fields_default_file(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--output-fields 未指定時(file)のデフォルトヘッダーが path,size,modified_time。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(sys, "argv", ["locatepy", "-c", str(config_path), "report"])
+    main()
+
+    out = capsys.readouterr().out
+    header = out.splitlines()[0]
+    assert header == "path\tsize\tmodified_time"
+
+
+def test_output_fields_default_dir(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--output-fields 未指定時(dir)のデフォルトヘッダーが path,total_size,modified_time。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys, "argv", ["locatepy", "-c", str(config_path), "--type", "dir", "subdir"]
+    )
+    main()
+
+    out = capsys.readouterr().out
+    header = out.splitlines()[0]
+    assert header == "path\ttotal_size\ttotal_files\tmodified_time"
+
+
+def test_output_fields_tsv(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--output-fields path,size でヘッダーが2列のみ、modified_time が含まれない。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["locatepy", "-c", str(config_path), "--output-fields", "path,size", "report"],
+    )
+    main()
+
+    out = capsys.readouterr().out
+    header = out.splitlines()[0]
+    assert header == "path\tsize"
+    assert "modified_time" not in header
+
+
+def test_output_fields_json(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--output-fields path,modified_time --format json でキーが2つのみ。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "locatepy",
+            "-c",
+            str(config_path),
+            "--format",
+            "json",
+            "--output-fields",
+            "path,modified_time",
+            "report",
+        ],
+    )
+    main()
+
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert len(data) == 1
+    assert set(data[0].keys()) == {"path", "modified_time"}
+
+
+def test_output_fields_dir(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--type dir --output-fields path,total_size でdir用フィールドが正しく出力される。"""
+    _tmp, config_path = env
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "locatepy",
+            "-c",
+            str(config_path),
+            "--type",
+            "dir",
+            "--output-fields",
+            "path,total_size",
+            "subdir",
+        ],
+    )
+    main()
+
+    out = capsys.readouterr().out
+    header = out.splitlines()[0]
+    assert header == "path\ttotal_size"
+    assert "subdir" in out
+
+
+def test_output_fields_invalid(
+    env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """無効なフィールド名指定で SystemExit が発生する。"""
+    _tmp, config_path = env
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["locatepy", "-c", str(config_path), "--output-fields", "path,invalid_field"],
+    )
+    with pytest.raises(SystemExit):
+        main()

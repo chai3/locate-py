@@ -58,6 +58,11 @@ CSV_HEADER_DIR = [
     "attributes",
 ]
 
+VALID_FILE_FIELDS: list[str] = CSV_HEADER
+VALID_DIR_FIELDS: list[str] = CSV_HEADER_DIR
+DEFAULT_FILE_OUTPUT_FIELDS = ["path", "size", "modified_time"]
+DEFAULT_DIR_OUTPUT_FIELDS = ["path", "total_size", "total_files", "modified_time"]
+
 
 class FileResult(TypedDict):
     path: str
@@ -152,6 +157,7 @@ class LocateArgs(argparse.Namespace):
     no_summary: bool
     create_config: bool
     mcp: bool
+    output_fields: list[str] | None
 
 
 class _DirAccum:
@@ -437,32 +443,35 @@ def _format_csv_fields(
     path: str,
     *,
     is_dir: bool,
+    output_fields: list[str],
 ) -> list[str]:
     if is_dir:
         dr = cast("DirResult", d)
-        return [
-            path,
-            str(dr["files"]),
-            str(dr["size"]),
-            str(dr["local_size"]),
-            str(dr["total_files"]),
-            str(dr["total_size"]),
-            str(dr["total_local_size"]),
-            dr["created_time"],
-            dr["accessed_time"],
-            dr["modified_time"],
-            str(dr["attributes"]) if dr["attributes"] is not None else "",
-        ]
-    fr = cast("FileResult", d)
-    return [
-        path,
-        str(fr["size"]) if fr["size"] is not None else "",
-        str(fr["local_size"]),
-        fr["created_time"],
-        fr["accessed_time"],
-        fr["modified_time"],
-        str(fr["attributes"]) if fr["attributes"] is not None else "",
-    ]
+        field_map: dict[str, str] = {
+            "path": path,
+            "files": str(dr["files"]),
+            "size": str(dr["size"]),
+            "local_size": str(dr["local_size"]),
+            "total_files": str(dr["total_files"]),
+            "total_size": str(dr["total_size"]),
+            "total_local_size": str(dr["total_local_size"]),
+            "created_time": dr["created_time"],
+            "accessed_time": dr["accessed_time"],
+            "modified_time": dr["modified_time"],
+            "attributes": str(dr["attributes"]) if dr["attributes"] is not None else "",
+        }
+    else:
+        fr = cast("FileResult", d)
+        field_map = {
+            "path": path,
+            "size": str(fr["size"]) if fr["size"] is not None else "",
+            "local_size": str(fr["local_size"]),
+            "created_time": fr["created_time"],
+            "accessed_time": fr["accessed_time"],
+            "modified_time": fr["modified_time"],
+            "attributes": str(fr["attributes"]) if fr["attributes"] is not None else "",
+        }
+    return [field_map[f] for f in output_fields]
 
 
 def _get_entry_size(d: FileResult | DirResult, *, is_dir: bool) -> int:
@@ -492,29 +501,39 @@ def _print_results(
     is_dir: bool,
 ) -> None:
     delimiter = "\t" if args.format == "tsv" else ","
-    header = CSV_HEADER_DIR if is_dir else CSV_HEADER
+
+    output_fields: list[str] = (
+        args.output_fields
+        if args.output_fields is not None
+        else (DEFAULT_DIR_OUTPUT_FIELDS if is_dir else DEFAULT_FILE_OUTPUT_FIELDS)
+    )
 
     count = 0
     total_size = 0
     header_written = False
-    json_results: list[FileResult | DirResult] = []
+    json_results: list[dict[str, object]] = []
 
     for d in results:
         if not header_written:
             if not args.no_header and args.format not in ("path", "json", "jsonl"):
-                print(delimiter.join(header))
+                print(delimiter.join(output_fields))
             header_written = True
 
         if args.format == "path":
             print(d["path"])
         elif args.format == "jsonl":
-            print(json.dumps(d, ensure_ascii=False))
+            d_dict = cast("dict[str, object]", d)
+            print(json.dumps({k: d_dict[k] for k in output_fields}, ensure_ascii=False))
         elif args.format == "json":
-            json_results.append(d)
+            d_dict = cast("dict[str, object]", d)
+            json_results.append({k: d_dict[k] for k in output_fields})
         else:
             # tsv / csv
             path = f'"{d["path"]}"' if args.format == "csv" else d["path"]
-            print(delimiter.join(_format_csv_fields(d, path, is_dir=is_dir)))
+            fields = _format_csv_fields(
+                d, path, is_dir=is_dir, output_fields=output_fields
+            )
+            print(delimiter.join(fields))
 
         total_size += _get_entry_size(d, is_dir=is_dir)
         count += 1
@@ -759,6 +778,22 @@ class LocatePy:
             yield from self._run_search(conn, "1=1", [], table)
 
 
+def _parse_output_fields(
+    raw: str, *, is_dir: bool, parser: argparse.ArgumentParser
+) -> list[str]:
+    valid_fields = VALID_DIR_FIELDS if is_dir else VALID_FILE_FIELDS
+    parsed = [f.strip() for f in raw.split(",") if f.strip()]
+    if not parsed:
+        parser.error("--output-fields: at least one field must be specified")
+    invalid = [f for f in parsed if f not in valid_fields]
+    if invalid:
+        parser.error(
+            f"--output-fields: invalid field(s): {', '.join(invalid)}. "
+            f"Valid fields: {', '.join(valid_fields)}"
+        )
+    return parsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simple locate command")
     parser.add_argument(
@@ -900,6 +935,21 @@ def main() -> None:
         help="Suppress summary line",
     )
     parser.add_argument(
+        "--output-fields",
+        dest="output_fields",
+        metavar="FIELDS",
+        default=None,
+        help=(
+            "Comma-separated fields to output (e.g. path,size,modified_time). "
+            "Default for --type file: path,size,modified_time. "
+            "Default for --type dir: path,total_size,modified_time. "
+            "File fields: path,size,local_size,created_time,accessed_time,"
+            "modified_time,attributes. "
+            "Dir fields: path,files,size,local_size,total_files,total_size,"
+            "total_local_size,created_time,accessed_time,modified_time,attributes."
+        ),
+    )
+    parser.add_argument(
         "--create-config",
         action="store_true",
         dest="create_config",
@@ -912,6 +962,11 @@ def main() -> None:
     )
 
     args = parser.parse_args(namespace=LocateArgs())
+
+    if args.output_fields is not None:
+        args.output_fields = _parse_output_fields(
+            cast("str", args.output_fields), is_dir=args.type == "dir", parser=parser
+        )
 
     if args.mcp:
         from locatepy import mcp as mcp_module  # noqa: PLC0415
