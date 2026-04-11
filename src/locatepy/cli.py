@@ -163,7 +163,7 @@ class LocateArgs(argparse.Namespace):
     limit: int | None
     ignore_case: bool
     format: str
-    create_config: bool
+    init: bool
     mcp: bool
     output_fields: list[str] | None
 
@@ -236,6 +236,78 @@ def _default_config() -> Config:
         "ignore_paths": ["/dev", "/proc", "/sys"],
         "ignore_names": [""],
     }
+
+
+def interactive_init(config_path: Path) -> None:
+    """npm init スタイルの対話的な設定ファイル作成"""
+    print("This utility will walk you through creating a locate-py config file.")
+    print("Press ^C at any time to quit.\n")
+
+    defaults = _default_config()
+
+    default_db = defaults["database_path"]
+    db_input = input(f"database path ({default_db}): ").strip()
+    database_path = db_input or default_db
+
+    default_targets = ",".join(defaults["target_paths"])
+    targets_input = input(
+        f"target paths (comma-separated) ({default_targets}): "
+    ).strip()
+    target_paths = (
+        [p.strip() for p in targets_input.split(",")]
+        if targets_input
+        else defaults["target_paths"]
+    )
+
+    default_ignores = ",".join(defaults["ignore_paths"])
+    ignore_default_display = default_ignores or "(none)"
+    ignores_input = input(
+        f"ignore paths (comma-separated) ({ignore_default_display}): "
+    ).strip()
+    ignore_paths: list[str]
+    if ignores_input:
+        ignore_paths = [p.strip() for p in ignores_input.split(",")]
+    else:
+        ignore_paths = defaults["ignore_paths"]
+
+    default_ignore_names = ",".join(defaults["ignore_names"])
+    ignore_names_default_display = (
+        default_ignore_names or "(none)"
+    )
+    ignore_names_input = input(
+        f"ignore names (comma-separated) ({ignore_names_default_display}): "
+    ).strip()
+    ignore_names: list[str]
+    if ignore_names_input:
+        ignore_names = [n.strip() for n in ignore_names_input.split(",")]
+    else:
+        ignore_names = defaults["ignore_names"]
+
+    config: Config = {
+        "database_path": database_path,
+        "target_paths": target_paths,
+        "ignore_paths": ignore_paths,
+        "ignore_names": ignore_names,
+    }
+
+    print(f"\nAbout to write to {config_path}:")
+    print(json.dumps(config, ensure_ascii=False, indent=2))
+    print()
+    answer = input("Is this OK? ([Y]es / [N]o): ").strip().lower()
+    if answer not in ("y", "yes", ""):
+        print("Aborted.")
+        sys.exit(1)
+
+    with config_path.open("w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+    print(f"\nConfig file created: {config_path}")
+
+    db_answer = input("\nBuild database now? ([Y]es / [N]o): ").strip().lower()
+    if db_answer in ("y", "yes", ""):
+        app = LocatePy(config, LocateArgs())
+        for msg in app.update_db():
+            print(msg)
+        print("Database built successfully.")
 
 
 def load_config(config_path: Path) -> Config:
@@ -986,10 +1058,9 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--create-config",
+        "--init",
         action="store_true",
-        dest="create_config",
-        help="Create config file and exit",
+        help="Interactively create config file and optionally build database",
     )
     parser.add_argument(
         "--mcp",
@@ -1010,10 +1081,11 @@ def main() -> None:
         mcp_module.main(["--config", args.config])
         return
 
-    config = load_config(Path(args.config))
-
-    if args.create_config:
+    if args.init:
+        interactive_init(Path(args.config))
         return
+
+    config = load_config(Path(args.config))
 
     app = LocatePy(config, args)
 
