@@ -8,6 +8,7 @@ A SQLite-based local file search tool. Indexes files and directories for fast se
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 Invoke directly without installing
+
 ```shell
 uvx --from git+https://github.com/chai3/locate-py locatepy [args]
 ```
@@ -22,18 +23,37 @@ uv tool install --from git+https://github.com/chai3/locate-py locatepy
 
 Both files and directories are indexed.
 
-1. Simple indexing method
 ```shell
-cd <target-directory>
-locatepy -u # Index current directory
+$ locatepy --init
+This utility will walk you through creating a locate-py config file.
+Press ^C at any time to quit.
+
+database path: (locate-py.db)
+target paths(comma-separated): (C:\Users\user) 
+ignore paths(comma-separated): 
+ignore names(comma-separated) : 
+
+About to write to locate-py.json:
+{
+  "database_path": "locate-py.db",
+  "target_paths": [
+    "C:\\Users\\user\\locate-py"
+  ],
+  "ignore_paths": [],
+  "ignore_names": []
+}
+
+Is this OK? ([Y]es / [N]o): yes
+
+Config file created: locate-py.json
+
+Build database now? ([Y]es / [N]o): yes
+Starting database creation.
+Indexed 2,973 files.
+Indexed 538 directories.
+Database built successfully.
 ```
 
-1. Advanced index method
-```shell
-locatepy --create-config
-# Configure the targets and other settings in the generated config.json.
-locatepy -u # Index based on config.json
-```
 
 
 ### locate-py.json example
@@ -56,6 +76,7 @@ locatepy -u # Index based on config.json
 locatepy report
 locatepy -i report          # case-insensitive
 locatepy -r "\.log$"        # regex
+locatepy --name report      # match filename only (not parent dirs)
 ```
 
 ### Size filter
@@ -68,8 +89,8 @@ locatepy --min-size 1G --sort size     # 1 GB or larger, sorted by size
 ### Time filter
 
 ```shell
-locatepy --mtime-after 2024-01-01
-locatepy --mtime-after "2024-06-01 00:00" --mtime-before "2024-06-30 23:59"
+locatepy --modified-time-after 2024-01-01
+locatepy --modified-time-after "2024-06-01 00:00" --modified-time-before "2024-06-30 23:59"
 ```
 
 ### Output options
@@ -77,12 +98,14 @@ locatepy --mtime-after "2024-06-01 00:00" --mtime-before "2024-06-30 23:59"
 ```shell
 locatepy report --format path          # path only
 locatepy report --format csv           # CSV output
+locatepy report --format json          # JSON output
 locatepy report -l 20                  # up to 20 results
-locatepy report --no-header            # no header row
 locatepy report --sort size            # sort by size descending
+locatepy report --output-fields path,size,modified_time  # custom fields
+locatepy report --target-dir C:\Users  # restrict to directory
 ```
 
-**Sort keys (`--type file`):** `path`, `size`, `lsize`, `mtime`, `ctime`, `atime`
+**Sort keys (`--type file`):** `path`, `name`, `size`, `local_size`, `modified_time`, `created_time`, `accessed_time`
 
 ---
 
@@ -119,47 +142,60 @@ locatepy --type dir Downloads
 locatepy --type dir -r "node_modules$" --sort total_size
 ```
 
-**Sort keys (`--type dir`):** `path`, `size` (direct), `lsize` (direct), `files` (direct), `total_size`, `total_lsize`, `total_files`, `mtime`, `ctime`, `atime`
 
-### Output columns (`--type dir`)
+## Command Reference
 
-| Column | Description |
-|--------|-------------|
-| path | Directory path |
-| files | Number of direct files |
-| size | Total size of direct files (bytes) |
-| lsize | Local size of direct files |
-| total_files | Total files under directory |
-| total_size | Total size under directory (bytes) |
-| total_lsize | Total local size under directory |
-| ctime / atime / mtime | Directory timestamps |
-| attributes | Windows file attributes |
+```shell
+$ uv run locatepy --help
+usage: locatepy [-h] [-c PATH] [-u] [-r PATTERN] [--name PATTERN] [--sort KEY] [--sort-order ORDER] [--min-size SIZE] [--max-size SIZE] [--min-total-size SIZE] [--max-total-size SIZE]
+                [--type {file,dir}] [--modified-time-after DATE] [--modified-time-before DATE] [--created-time-after DATE] [--created-time-before DATE] [--accessed-time-after DATE]
+                [--accessed-time-before DATE] [--target-dir DIR] [-l N] [-i] [-f {human,tsv,csv,path,json,jsonl}] [--output-fields FIELDS] [--init] [--mcp]
+                [pattern]
 
-> `lsize` is the local size excluding cloud-only files (e.g. OneDrive files not downloaded locally).
+Simple locate command
 
----
+positional arguments:
+  pattern               Search by pattern (partial match)
 
-## Options Reference
-
-| Option | Description |
-|--------|-------------|
-| `-u` / `--update` | Update the database |
-| `-c PATH` | Path to config file (default: `locate-py.json`) |
-| `--type file\|dir` | Type to search (default: `file`) |
-| `-r PATTERN` | Regex search |
-| `-i` | Case-insensitive search |
-| `--sort KEY` | Sort key |
-| `--sort-order asc\|desc` | Sort order |
-| `--min-size SIZE` | Minimum size (e.g. `1K`, `10M`, `2G`) |
-| `--max-size SIZE` | Maximum size |
-| `--min-total-size SIZE` | Minimum total size under dir (`--type dir` only) |
-| `--max-total-size SIZE` | Maximum total size under dir (`--type dir` only) |
-| `--mtime-after DATE` | Modified time lower bound (`YYYY-MM-DD` format) |
-| `--mtime-before DATE` | Modified time upper bound |
-| `--ctime-after/before` | Creation time filter |
-| `--atime-after/before` | Access time filter |
-| `-l N` | Maximum number of results |
-| `-f tsv\|csv\|path` | Output format (default: `tsv`) |
-| `--no-header` | Suppress header row |
-| `--no-summary` | Suppress summary line |
-| `--create-config` | Generate config file and exit |
+options:
+  -h, --help            show this help message and exit
+  -c PATH, --config PATH
+                        Path to config file (default: locate-py.json)
+  -u, --update          Update the database
+  -r PATTERN, --regex PATTERN
+                        Search with regex pattern
+  --name PATTERN        Search by file/directory name only (basename, not parent dirs)
+  --sort KEY            Sort key (--type file): path, name, size, local_size, modified_time, created_time, accessed_time / (--type dir): path, name, size, local_size, modified_time,    
+                        created_time, accessed_time, files, total_size, total_local_size, total_files
+  --sort-order ORDER    Sort order: asc / desc (default: path→asc, others→desc)
+  --min-size SIZE       Minimum size (e.g. 1K, 10M)
+  --max-size SIZE       Maximum size (e.g. 100M, 1G)
+  --min-total-size SIZE
+                        (--type dir only) Minimum total size under directory (e.g. 1G)
+  --max-total-size SIZE
+                        (--type dir only) Maximum total size under directory
+  --type {file,dir}     Type to search: file (default), dir
+  --modified-time-after DATE
+                        Modified time lower bound
+  --modified-time-before DATE
+                        Modified time upper bound
+  --created-time-after DATE
+                        Creation time lower bound
+  --created-time-before DATE
+                        Creation time upper bound
+  --accessed-time-after DATE
+                        Access time lower bound
+  --accessed-time-before DATE
+                        Access time upper bound
+  --target-dir DIR      Restrict search to the specified directory
+  -l N, --limit N       Maximum number of matches
+  -i, --ignore-case     Case-insensitive search
+  -f {human,tsv,csv,path,json,jsonl}, --format {human,tsv,csv,path,json,jsonl}
+                        Output format: human (default), tsv, csv, path, json, jsonl
+  --output-fields FIELDS
+                        Comma-separated fields to output (e.g. path,size,modified_time). Default for --type file: path,size,modified_time. Default for --type dir:
+                        path,total_size,modified_time. File fields: path,size,local_size,created_time,accessed_time,modified_time,attributes. Dir fields:
+                        path,files,size,local_size,total_files,total_size,total_local_size,created_time,accessed_time,modified_time,attributes.
+  --init                Interactively create config file and optionally build database
+  --mcp                 Run as MCP server (stdio transport)
+```

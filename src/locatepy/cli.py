@@ -221,67 +221,32 @@ def _file_batch_rows(batch: list[FileEntry]) -> list[tuple]:
     ]
 
 
-def _default_config() -> Config:
-    cwd = str(Path.cwd())
-    if sys.platform == "win32":
-        return {
-            "database_path": "locate-py.db",
-            "target_paths": [cwd],
-            "ignore_paths": [],
-            "ignore_names": [],
-        }
-    return {
-        "database_path": "locate-py.db",
-        "target_paths": [cwd],
-        "ignore_paths": ["/dev", "/proc", "/sys"],
-        "ignore_names": [""],
-    }
-
-
 def interactive_init(config_path: Path) -> None:
     """npm init スタイルの対話的な設定ファイル作成"""
     print("This utility will walk you through creating a locate-py config file.")
     print("Press ^C at any time to quit.\n")
 
-    defaults = _default_config()
-
-    default_db = defaults["database_path"]
-    db_input = input(f"database path ({default_db}): ").strip()
+    default_db = "locate-py.db"
+    db_input = input(f"database path: ({default_db}) ").strip()
     database_path = db_input or default_db
 
-    default_targets = ",".join(defaults["target_paths"])
-    targets_input = input(
-        f"target paths (comma-separated) ({default_targets}): "
-    ).strip()
+    default_target = str(Path.cwd())
+    targets_input = input(f"target paths(comma-separated): ({default_target}) ").strip()
     target_paths = (
         [p.strip() for p in targets_input.split(",")]
         if targets_input
-        else defaults["target_paths"]
+        else [default_target]
     )
 
-    default_ignores = ",".join(defaults["ignore_paths"])
-    ignore_default_display = default_ignores or "(none)"
-    ignores_input = input(
-        f"ignore paths (comma-separated) ({ignore_default_display}): "
-    ).strip()
-    ignore_paths: list[str]
+    ignores_input = input("ignore paths(comma-separated): ").strip()
+    ignore_paths: list[str] = []
     if ignores_input:
         ignore_paths = [p.strip() for p in ignores_input.split(",")]
-    else:
-        ignore_paths = defaults["ignore_paths"]
 
-    default_ignore_names = ",".join(defaults["ignore_names"])
-    ignore_names_default_display = (
-        default_ignore_names or "(none)"
-    )
-    ignore_names_input = input(
-        f"ignore names (comma-separated) ({ignore_names_default_display}): "
-    ).strip()
-    ignore_names: list[str]
+    ignore_names_input = input("ignore names(comma-separated) : ").strip()
+    ignore_names: list[str] = []
     if ignore_names_input:
         ignore_names = [n.strip() for n in ignore_names_input.split(",")]
-    else:
-        ignore_names = defaults["ignore_names"]
 
     config: Config = {
         "database_path": database_path,
@@ -312,16 +277,7 @@ def interactive_init(config_path: Path) -> None:
 
 def load_config(config_path: Path) -> Config:
     if not config_path.exists():
-        config = _default_config()
-        with config_path.open("w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-        os_name = "Windows" if sys.platform == "win32" else sys.platform
-        print(
-            f"{config_path} was not found, so it was created automatically."
-            f"(OS: {os_name})"
-        )
-        print(json.dumps(config, ensure_ascii=False, indent=2))
-        return config
+        raise SystemExit("Error: config file not found. Run locatepy --init first.")
     with config_path.open(encoding="utf-8") as f:
         return json.load(f)
 
@@ -689,7 +645,7 @@ class LocatePy:
 
     def _check_db(self) -> None:
         if not self.db_path.exists():
-            raise SystemExit("Error: database not found. Run locate -u first.")
+            raise SystemExit("Error: database not found. Run locatepy -u first.")
 
     def _get_table(self) -> Literal["files", "dirs"]:
         return "dirs" if self.args.type == "dir" else "files"
