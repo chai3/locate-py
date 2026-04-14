@@ -150,13 +150,38 @@ Search complete: 4 entries
 ```
 {
   "mcpServers": {
-    "my-server": {
-      "command": "uvx",uvx --from git+https://github.com/chai3/locate-py locatepy [args]
-      "args": ["--from", "git+https://github.com/chai3/locate-py", "lcoatepy", "--config", "locate-py.json"]
+    "locatepy": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/chai3/locate-py", "locatepy", "--mcp", "--config", "locate-py.json"]
     }
   }
 }
 ```
+
+```
+The locatepy tool search the 10 largest files and notes whether they are necessary for Windows.
+```
+
+```
+Here are the 10 largest files on your system with Windows necessity assessment:
+
+| File | Size | Windows Required | Description |
+|------|------|------------------|-------------|
+| C:\hiberfil.sys | 27.3 GB | **Yes** | Windows Hibernation file |
+| Phi-4 ONNX Model | 10.9 GB | **No** | Machine learning model cache - can be deleted |
+| Claude VM rootfs | 10.2 GB | **Optional** | Development environment - deletable if not needed |
+| C:\pagefile.sys | 4.3 GB | **Yes** | Windows Virtual Memory |
+| Chrome Optimization Model | 4.3 GB | **No** | Cache file - can be deleted |
+| RSA ROM Image 1 | 3.9 GB | **Device-specific** | Firmware update file - keep if needed |
+| Ubuntu ISO | 3.8 GB | **No** | Linux installation media - can be deleted if not using Linux |
+| RSA ROM Image 2 | 3.8 GB | **Device-specific** | Firmware file - keep if needed |
+| CUDA 12.0 | 3.7 GB | **Optional** | GPU development toolkit - deletable if not needed |
+| CUDA 12.4.1 | 3.2 GB | **Optional** | GPU development toolkit - older version can be deleted |
+
+**Windows Required**: hiberfil.sys and pagefile.sys (31.6 GB total)
+**Recommended for Deletion**: Ubuntu ISO, older CUDA versions, cache files (14.5+ GB possible space recovery)
+```
+
 
 ## Command Reference
 
