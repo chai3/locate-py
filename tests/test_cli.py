@@ -48,25 +48,10 @@ def env(
 # ---------------------------------------------------------------------------
 
 
-def test_update_creates_db(
-    file_tree: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_update_creates_db(env: tuple[Path, Path]) -> None:
     """-u でDBファイルが生成されることを確認。"""
-    db_path = file_tree / "test.db"
-    config: dict = {
-        "database_path": str(db_path),
-        "target_paths": [str(file_tree)],
-        "ignore_paths": [],
-        "ignore_names": [],
-    }
-    config_path = file_tree / "config.json"
-    config_path.write_text(json.dumps(config), encoding="utf-8")
-
-    monkeypatch.setattr(sys, "argv", ["locatepy", "-c", str(config_path), "-u"])
-    main()
-
-    assert db_path.exists()
+    file_tree, _config_path = env
+    assert (file_tree / "test.db").exists()
 
 
 def test_search_pattern(

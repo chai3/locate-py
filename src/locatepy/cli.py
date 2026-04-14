@@ -241,7 +241,7 @@ def interactive_init(config_path: Path) -> None:
     ignores_input = input("ignore paths(comma-separated): ").strip()
     ignore_paths: list[str] = []
     if ignores_input:
-        ignore_paths = [p.strip() for p in ignores_input.split(",")]
+        ignore_paths = [p.strip() for p in ignores_input.split(",") if p.strip()]
 
     ignore_names_input = input("ignore names(comma-separated) : ").strip()
     ignore_names: list[str] = []
@@ -344,7 +344,7 @@ def _propagate_totals(dir_accums: dict[str, "_DirAccum"]) -> None:
         acc.total_files = acc.files
         acc.total_size = acc.size
         acc.total_local_size = acc.local_size
-    for d in sorted(dir_accums, key=lambda p: p.count(os.sep), reverse=True):
+    for d in sorted(dir_accums, key=lambda p: len(Path(p).parts), reverse=True):
         parent = os.path.dirname(d)
         if parent != d and parent in dir_accums:
             p = dir_accums[parent]
@@ -377,11 +377,20 @@ def _parse_date_ns(s: str) -> int:
     )
 
 
-def _add_size_filter(
-    where: list[str], params: list, col_expr: str, val: str, option_name: str
+_LIKE_ESCAPE_CHAR = "@"
+
+
+def _escape_like(s: str) -> str:
+    """LIKE メタキャラクタ (%, _) と escape 文字 @ をエスケープする。"""
+    ec = _LIKE_ESCAPE_CHAR
+    return s.replace(ec, ec + ec).replace("%", ec + "%").replace("_", ec + "_")
+
+
+def _add_size_filter(  # noqa: PLR0913
+    where: list[str], params: list, col: str, op: str, val: str, option_name: str
 ) -> None:
     try:
-        where.append(f"{col_expr} ?")
+        where.append(f"{col} {op} ?")
         params.append(_parse_size(val))
     except ValueError:
         raise SystemExit(f"Error: invalid value for {option_name}: {val!r}") from None
@@ -419,22 +428,22 @@ def _apply_filters_and_sort(  # noqa: C901
 ) -> str:
     if args.target_dir:
         norm = os.path.normpath(args.target_dir)
-        where.append("path LIKE ?")
-        params.append(norm + os.sep + "%")
+        where.append(f"path LIKE ? ESCAPE '{_LIKE_ESCAPE_CHAR}'")
+        params.append(_escape_like(norm) + os.sep + "%")
     if args.min_size is not None:
-        _add_size_filter(where, params, "size >=", args.min_size, "--min-size")
+        _add_size_filter(where, params, "size", ">=", args.min_size, "--min-size")
     if args.max_size is not None:
-        _add_size_filter(where, params, "size <=", args.max_size, "--max-size")
+        _add_size_filter(where, params, "size", "<=", args.max_size, "--max-size")
     if is_dir:
         min_total = getattr(args, "min_total_size", None)
         max_total = getattr(args, "max_total_size", None)
         if min_total is not None:
             _add_size_filter(
-                where, params, "total_size >=", min_total, "--min-total-size"
+                where, params, "total_size", ">=", min_total, "--min-total-size"
             )
         if max_total is not None:
             _add_size_filter(
-                where, params, "total_size <=", max_total, "--max-total-size"
+                where, params, "total_size", "<=", max_total, "--max-total-size"
             )
     for col, after_attr, before_attr in [
         ("mtime_ns", "modified_time_after", "modified_time_before"),
@@ -451,8 +460,8 @@ def _apply_filters_and_sort(  # noqa: C901
             params.append(_parse_date_ns(before_val))
     name_val = getattr(args, "name", None)
     if name_val is not None:
-        where.append("name LIKE ?")
-        params.append(f"%{name_val}%")
+        where.append(f"name LIKE ? ESCAPE '{_LIKE_ESCAPE_CHAR}'")
+        params.append(f"%{_escape_like(name_val)}%")
     return _build_order_clause(args, sort_columns, is_dir=is_dir)
 
 
@@ -609,11 +618,10 @@ def _print_results(
     _print_summary(count, total_size, args, is_dir=is_dir)
 
 
-_SEARCH_OPTION_ATTRS = (
+_SEARCH_FILTER_ATTRS = (
     "name",
     "sort",
     "sort_order",
-    "limit",
     "min_size",
     "max_size",
     "min_total_size",
@@ -624,8 +632,6 @@ _SEARCH_OPTION_ATTRS = (
     "created_time_before",
     "accessed_time_after",
     "accessed_time_before",
-    "ignore_case",
-    "type",
     "target_dir",
 )
 
@@ -634,7 +640,10 @@ def _has_search_options(args: LocateArgs) -> bool:
     # if type is "dir", treat it as an explicit search
     if getattr(args, "type", "file") == "dir":
         return True
-    return any(getattr(args, attr, None) for attr in _SEARCH_OPTION_ATTRS)
+    # limit=0 はfalsyだが有効なフィルタなので is not None で判定する
+    if getattr(args, "limit", None) is not None:
+        return True
+    return any(getattr(args, attr, None) for attr in _SEARCH_FILTER_ATTRS)
 
 
 class LocatePy:
@@ -827,7 +836,12 @@ class LocatePy:
         self._check_db()
         table = self._get_table()
         with sqlite3.connect(self.db_path) as conn:
-            yield from self._run_search(conn, "path LIKE ?", [f"%{pattern}%"], table)
+            yield from self._run_search(
+                conn,
+                f"path LIKE ? ESCAPE '{_LIKE_ESCAPE_CHAR}'",
+                [f"%{_escape_like(pattern)}%"],
+                table,
+            )
 
     def search_regex(self, pattern: str) -> Iterator[FileResult | DirResult]:
         self._check_db()
