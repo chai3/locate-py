@@ -3,11 +3,15 @@
 import argparse
 import re
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from mcp.server.fastmcp import FastMCP
 
 from locatepy.cli import (
+    DEFAULT_DIR_OUTPUT_FIELDS,
+    DEFAULT_FILE_OUTPUT_FIELDS,
+    VALID_DIR_FIELDS,
+    VALID_FILE_FIELDS,
     DirResult,
     FileResult,
     LocateArgs,
@@ -88,7 +92,7 @@ def search(  # noqa: PLR0913
         "Sort key (name, path, size, modified_time, created_time, accessed_time, ...)",
     ] = None,
     sort_order: Annotated[str | None, "Sort order: 'asc' or 'desc'"] = None,
-    limit: Annotated[int | None, "Maximum number of results"] = None,
+    limit: Annotated[int | None, "Maximum number of results"] = 100,
     min_size: Annotated[str | None, "Minimum file size (e.g. '1M', '500K')"] = None,
     max_size: Annotated[str | None, "Maximum file size (e.g. '100M', '1G')"] = None,
     min_total_size: Annotated[
@@ -107,11 +111,36 @@ def search(  # noqa: PLR0913
     accessed_time_before: Annotated[str | None, "Accessed before"] = None,
     target_dir: Annotated[str | None, "Restrict search to this directory"] = None,
     ignore_case: Annotated[bool, "Case-insensitive search"] = False,  # noqa: FBT002
-    config_path: Annotated[str | None, "Path to locate-py.json config file"] = None,
-) -> list[FileResult | DirResult]:
+    output_fields: Annotated[
+        list[str] | None,
+        (
+            "Fields to include in results. "
+            "File defaults: path,size,modified_time. "
+            "Dir defaults: path,total_size,total_files,modified_time. "
+            "File fields: path,name,size,local_size,"
+            "created_time,accessed_time,modified_time,attributes. "
+            "Dir fields: path,name,files,size,local_size,"
+            "total_files,total_size,total_local_size,"
+            "created_time,accessed_time,modified_time,attributes."
+        ),
+    ] = None,
+) -> list[dict[str, object]]:
     """Search for files or directories matching a pattern (substring or regex)."""
+    is_dir = type == "dir"
+    valid_fields = VALID_DIR_FIELDS if is_dir else VALID_FILE_FIELDS
+    resolved_fields: list[str] = (
+        output_fields
+        if output_fields is not None
+        else (DEFAULT_DIR_OUTPUT_FIELDS if is_dir else DEFAULT_FILE_OUTPUT_FIELDS)
+    )
+    invalid = [f for f in resolved_fields if f not in valid_fields]
+    if invalid:
+        raise ValueError(
+            f"Invalid output_fields: {', '.join(invalid)}. "
+            f"Valid fields: {', '.join(valid_fields)}"
+        )
     app = _make_app(
-        config_path,
+        None,
         entry_type=type,
         name=name,
         sort=sort,
@@ -132,12 +161,16 @@ def search(  # noqa: PLR0913
     )
     try:
         if regex:
-            return list(app.search_regex(pattern))
-        return list(app.search_pattern(pattern))
+            results: list[FileResult | DirResult] = list(app.search_regex(pattern))
+        else:
+            results = list(app.search_pattern(pattern))
     except re.error as e:
         raise ValueError(f"Invalid regular expression: {e}") from e
     except SystemExit as e:
         raise ValueError(str(e)) from e
+    return [
+        {k: cast("dict[str, object]", r)[k] for k in resolved_fields} for r in results
+    ]
 
 
 def main(argv: list[str] | None = None) -> None:

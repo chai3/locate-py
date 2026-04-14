@@ -10,13 +10,13 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 Invoke directly without installing
 
 ```shell
-uvx --from git+https://github.com/chai3/locate-py locatepy [args]
+$ uvx --from git+https://github.com/chai3/locate-py locatepy [args]
 ```
 
 Or globally install
 
 ```shell
-uv tool install --from git+https://github.com/chai3/locate-py locatepy
+$ uv tool install --from git+https://github.com/chai3/locate-py locatepy
 ```
 
 ### Setup(Indexing)
@@ -54,6 +54,7 @@ Indexed 538 directories.
 Database built successfully.
 ```
 
+Indexing 1 million files takes about 3 minutes. Searching takes about 1 second.
 
 
 ### locate-py.json example
@@ -73,75 +74,89 @@ Database built successfully.
 ### Pattern search (partial match)
 
 ```shell
-locatepy report
-locatepy -i report          # case-insensitive
-locatepy -r "\.log$"        # regex
-locatepy --name report      # match filename only (not parent dirs)
+$ locatepy mp4
+$ locatepy -r "\.log$"        # regex
+$ locatepy --name report      # match filename only (not parent dirs)
 ```
 
-### Size filter
+### Size/Time filter
 
 ```shell
-locatepy --min-size 100M               # 100 MB or larger
-locatepy --min-size 1G --sort size     # 1 GB or larger, sorted by size
-```
-
-### Time filter
-
-```shell
-locatepy --modified-time-after 2024-01-01
-locatepy --modified-time-after "2024-06-01 00:00" --modified-time-before "2024-06-30 23:59"
+$ locatepy --min-size 100M  mp4                  # 100 MB or larger
+$ locatepy --min-size 1G --sort size --limit 10  # 1 GB or larger, sorted by size
+$ locatepy --modified-time-after 2026-01-01
+$ locatepy --modified-time-after "2026-06-01 00:00" --modified-time-before "2026-06-30 23:59"
 ```
 
 ### Output options
 
 ```shell
-locatepy report --format path          # path only
-locatepy report --format csv           # CSV output
-locatepy report --format json          # JSON output
-locatepy report -l 20                  # up to 20 results
-locatepy report --sort size            # sort by size descending
-locatepy report --output-fields path,size,modified_time  # custom fields
-locatepy report --target-dir C:\Users  # restrict to directory
+$ locatepy report --format path            # path only
+$ locatepy report --format csv --output-fields path,size,modified_time  # custom fields
+$ locatepy report --target-dir "C:\Users"  # restrict to directory
 ```
 
-**Sort keys (`--type file`):** `path`, `name`, `size`, `local_size`, `modified_time`, `created_time`, `accessed_time`
+### Example output
 
----
+```shell
+$ locatepy --min-size 1G --sort size --limit 3
+path,size,modified_time
+C:\hiberfil.sys,27328634880,2026-04-14 11:57:06
+C:\Users\user\.foundry\cache\models\Microsoft\Phi-4-generic-cpu\cpu-int4-rtn-block-32-acc-level-4\phi-4-medium-cpu-int4-rtn-block-32-acc-level-4.onnx.data,10906062848,2025-05-29 09:57:06
+C:\Users\user\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\vm_bundles\claudevm.bundle\rootfs.vhdx,10192158720,2026-04-14 19:24:58
+Search complete: 3 entries / 45.1 GB
+```
 
 ## Directory Search (`--type dir`)
 
 ### Find large folders (recursive total)
 
 ```shell
-locatepy --type dir --min-total-size 1G --sort total_size
-```
-
-### Find folders with many files (recursive total)
-
-```shell
-locatepy --type dir --sort total_files
+$ locatepy --type dir --min-total-size 1G --sort total_size
 ```
 
 ### Find folders with many direct files
 
 ```shell
-locatepy --type dir --sort files
+$ locatepy --type dir --sort files
 ```
 
 ### Filter by direct size
 
 ```shell
-locatepy --type dir --min-size 500M --sort size
+$ locatepy --type dir --min-size 500M --sort size
 ```
 
 ### Pattern filter + directory search
 
 ```shell
-locatepy --type dir Downloads
-locatepy --type dir -r "node_modules$" --sort total_size
+$ locatepy --type dir --name ".venv" --sort total_size
 ```
 
+### Example Output + directory search
+
+```
+$ locatepy --type dir --sort total_size --limit 4 --name "node_modules" 
+path,total_size,total_files,modified_time
+C:\Prog\VSCode\41dd792b5e\resources\app\node_modules,123501343,4026,2026-04-08 22:05:23
+C:\Users\user\AppData\Local\npm-cache\_npx\5a9d879542beca3a\node_modules,102593250,11944,2025-08-02 01:17:30
+C:\Users\user\AppData\Roaming\npm\node_modules,58245114,8368,2025-07-31 20:56:22
+C:\Users\user\AppData\Local\Yarn\Cache\v6\npm-typescript-5.2.2-5ebb5e5a5b75f085f22bc3f8460fba308310fa78-integrity\node_modules,47855557,116,2024-09-27 02:35:24
+Search complete: 4 entries
+```
+
+## Model Context Protocol(MCP)
+
+```
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "uvx",uvx --from git+https://github.com/chai3/locate-py locatepy [args]
+      "args": ["--from", "git+https://github.com/chai3/locate-py", "lcoatepy", "--config", "locate-py.json"]
+    }
+  }
+}
+```
 
 ## Command Reference
 

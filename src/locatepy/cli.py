@@ -267,12 +267,13 @@ def interactive_init(config_path: Path) -> None:
         json.dump(config, f, ensure_ascii=False, indent=2)
     print(f"\nConfig file created: {config_path}")
 
-    db_answer = input("\nBuild database now? ([Y]es / [N]o): ").strip().lower()
+    db_answer = input("\nIndex database now? ([Y]es / [N]o): ").strip().lower()
     if db_answer in ("y", "yes", ""):
         app = LocatePy(config, LocateArgs())
         for msg in app.update_db():
             print(msg)
-        print("Database built successfully.")
+        print("The indexing of the database was successful.")
+    print("You can re-index database using `locatepy -u`")
 
 
 def load_config(config_path: Path) -> Config:
