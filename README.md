@@ -63,7 +63,7 @@ Indexing 1 million files takes about 3 minutes. Searching takes about 1 second.
 {
   "database_path": "locate-py.db",
   "target_paths": ["C:\\", "D:\\"], // ex: "C:\\" "\\\\192.168.1.2\\share" "/" "/home"
-  "ignore_paths": ["C:\\$Recycle.Bin"],
+  "ignore_paths": ["C:\\$Recycle.Bin"], // "/dev", "/sys", "/proc", "/run", "/mnt"
   "ignore_names": [""] // .git .venv node_modules
 }
 ```
