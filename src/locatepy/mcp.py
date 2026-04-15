@@ -51,26 +51,26 @@ def _make_locate_args(  # noqa: PLR0913
     target_dir: str | None = None,
     ignore_case: bool = False,
 ) -> LocateArgs:
-    args = LocateArgs()
-    args.type = entry_type
-    args.name = name
-    args.sort = sort
-    args.sort_order = sort_order
-    args.limit = limit
-    args.min_size = min_size
-    args.max_size = max_size
-    args.min_total_size = min_total_size
-    args.max_total_size = max_total_size
-    args.modified_time_after = modified_time_after
-    args.modified_time_before = modified_time_before
-    args.created_time_after = created_time_after
-    args.created_time_before = created_time_before
-    args.accessed_time_after = accessed_time_after
-    args.accessed_time_before = accessed_time_before
-    args.target_dir = target_dir
-    args.ignore_case = ignore_case
-    args.format = "json"
-    return args
+    return LocateArgs(
+        type=entry_type,
+        name=name,
+        sort=sort,
+        sort_order=sort_order,
+        limit=limit,
+        min_size=min_size,
+        max_size=max_size,
+        min_total_size=min_total_size,
+        max_total_size=max_total_size,
+        modified_time_after=modified_time_after,
+        modified_time_before=modified_time_before,
+        created_time_after=created_time_after,
+        created_time_before=created_time_before,
+        accessed_time_after=accessed_time_after,
+        accessed_time_before=accessed_time_before,
+        target_dir=target_dir,
+        ignore_case=ignore_case,
+        format="json",
+    )
 
 
 def _make_app(config_path: str | None, **kwargs: Any) -> LocatePy:  # noqa: ANN401

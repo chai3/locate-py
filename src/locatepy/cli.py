@@ -36,7 +36,7 @@ DIR_SORT_COLUMNS = {
     "total_files": "total_files",
 }
 
-CSV_HEADER = [
+VALID_FILE_FIELDS: list[str] = [
     "path",
     "name",
     "size",
@@ -47,7 +47,7 @@ CSV_HEADER = [
     "attributes",
 ]
 
-CSV_HEADER_DIR = [
+VALID_DIR_FIELDS: list[str] = [
     "path",
     "name",
     "files",
@@ -61,9 +61,6 @@ CSV_HEADER_DIR = [
     "modified_time",
     "attributes",
 ]
-
-VALID_FILE_FIELDS: list[str] = CSV_HEADER
-VALID_DIR_FIELDS: list[str] = CSV_HEADER_DIR
 DEFAULT_FILE_OUTPUT_FIELDS = ["path", "size", "modified_time"]
 DEFAULT_DIR_OUTPUT_FIELDS = ["path", "total_size", "total_files", "modified_time"]
 
@@ -344,7 +341,7 @@ def _propagate_totals(dir_accums: dict[str, "_DirAccum"]) -> None:
         acc.total_files = acc.files
         acc.total_size = acc.size
         acc.total_local_size = acc.local_size
-    for d in sorted(dir_accums, key=lambda p: len(Path(p).parts), reverse=True):
+    for d in sorted(dir_accums, key=lambda p: p.count(os.sep), reverse=True):
         parent = os.path.dirname(d)
         if parent != d and parent in dir_accums:
             p = dir_accums[parent]
@@ -466,12 +463,12 @@ def _apply_filters_and_sort(  # noqa: C901
 
 
 def _format_size(size: int) -> str:
-    size: float | int
+    fsize: float = size
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if size < 1024:  # noqa: PLR2004
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} PB"
+        if fsize < 1024:  # noqa: PLR2004
+            return f"{fsize:.1f} {unit}"
+        fsize /= 1024
+    return f"{fsize:.1f} PB"
 
 
 def _ns_to_str(ns: int | None) -> str:
@@ -595,12 +592,13 @@ def _print_results(
 
         if args.format == "path":
             print(d["path"])
-        elif args.format == "jsonl":
+        elif args.format in ("jsonl", "json"):
             d_dict = cast("dict[str, object]", d)
-            print(json.dumps({k: d_dict[k] for k in output_fields}, ensure_ascii=False))
-        elif args.format == "json":
-            d_dict = cast("dict[str, object]", d)
-            json_results.append({k: d_dict[k] for k in output_fields})
+            filtered = {k: d_dict[k] for k in output_fields}
+            if args.format == "jsonl":
+                print(json.dumps(filtered, ensure_ascii=False))
+            else:
+                json_results.append(filtered)
         else:
             # tsv / csv
             path = f'"{d["path"]}"' if args.format == "csv" else d["path"]
@@ -637,11 +635,10 @@ _SEARCH_FILTER_ATTRS = (
 
 
 def _has_search_options(args: LocateArgs) -> bool:
-    # if type is "dir", treat it as an explicit search
-    if getattr(args, "type", "file") == "dir":
+    if args.type == "dir":
         return True
-    # limit=0 はfalsyだが有効なフィルタなので is not None で判定する
-    if getattr(args, "limit", None) is not None:
+    # limit=0 is falsy but valid, so check with is not None
+    if args.limit is not None:
         return True
     return any(getattr(args, attr, None) for attr in _SEARCH_FILTER_ATTRS)
 
@@ -848,12 +845,12 @@ class LocatePy:
         table = self._get_table()
         flags = re.IGNORECASE if self.args.ignore_case else 0
         try:
-            re.compile(pattern, flags)
+            compiled = re.compile(pattern, flags)
         except re.error as e:
             raise SystemExit(f"Error: invalid regular expression: {e}") from e
         with sqlite3.connect(self.db_path) as conn:
             conn.create_function(
-                "REGEXP", 2, lambda pat, val: bool(re.search(pat, val or "", flags))
+                "REGEXP", 2, lambda _pat, val: bool(compiled.search(val or ""))
             )
             yield from self._run_search(conn, "path REGEXP ?", [pattern], table)
 
