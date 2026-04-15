@@ -143,6 +143,21 @@ C:\Users\user\AppData\Local\npm-cache\_npx\5a9d879542beca3a\node_modules,1025932
 C:\Users\user\AppData\Roaming\npm\node_modules,58245114,8368,2025-07-31 20:56:22
 C:\Users\user\AppData\Local\Yarn\Cache\v6\npm-typescript-5.2.2-5ebb5e5a5b75f085f22bc3f8460fba308310fa78-integrity\node_modules,47855557,116,2024-09-27 02:35:24
 Search complete: 4 entries
+
+
+$ locatepy --type dir --sort total_size --limit 10
+path,total_size,total_files,modified_time
+C:\,361774114201,1087267,2026-04-11 22:16:17
+C:\Users,177260282868,783137,2025-01-31 02:42:58
+C:\Users\user,177254435552,783036,2026-04-14 17:57:01
+C:\Users\user\AppData,88332736394,677959,2025-01-31 02:43:25
+C:\Users\user\AppData\Local,79765678800,620343,2026-04-13 20:26:01
+C:\Users\user\Downloads,64434140326,5757,2026-04-09 01:31:47
+C:\Windows,42707951160,180237,2026-04-08 13:11:24
+C:\Data,38852969047,458,2024-07-02 23:28:18
+C:\ProgramData,25766780523,9100,2026-03-20 04:30:05
+C:\Program Files,22144993244,41360,2026-01-14 19:37:28
+Search complete: 10 entries
 ```
 
 ## Model Context Protocol(MCP)
